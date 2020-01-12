@@ -125,15 +125,11 @@ class Controller:
         """
         # 不允许对挂起的控制器分派任务。
         assert not self.is_suspended()
-        context = context or {}
-        kwargs = kwargs or {}
-        self.event_channel.put((evt, value, context, args, kwargs))
+        self.event_channel.put((evt, value, context or {}, args, kwargs or {}))
 
     def message(self, evt, value=None, context=None, args=(), kwargs=None):
         """ 给控制器返回通道推送事件。 """
-        context = context or {}
-        kwargs = kwargs or {}
-        self.return_channel.put((evt, value, context, args, kwargs))
+        self.return_channel.put((evt, value, context or {}, args, kwargs or {}))
 
     def listen(self, target, allow):
         """ 监听指定控制器的事件。 """
@@ -143,7 +139,7 @@ class Controller:
         """ 允许被队列Queue监听。"""
         self._listeners.append(Listener(queue, allow))
 
-    def shutdown(self, block=True):
+    def shutdown(self):
         """ 发送关闭控制器的信号。"""
         # 恢复被挂起的线程，让其恢复接受任务处理的状态。
         self.__no_suspend.set()
@@ -154,8 +150,6 @@ class Controller:
                 plugin.__close__()
 
         self.dispatch(EVT_DRI_SHUTDOWN)
-        if block:
-            self.__con_thread.join()
 
     close = shutdown
 
@@ -239,7 +233,7 @@ class Controller:
             # 如果线程被挂起，那么进入等待。
             self.__no_suspend.wait()
             evt, val, event_ctx, hdl_args, hdl_kwargs = self.event_channel.get()
-            print('%s, %s, %s, %s, %s, %s' % (current_process().pid, evt, val, event_ctx, hdl_args, hdl_kwargs))
+            # print('%s, %s, %s, %s, %s, %s' % (current_process().pid, evt, val, event_ctx, hdl_args, hdl_kwargs))
             # 当取到任务后清除空闲标志位。
             self.__idle.clear()
             # 准备处理函数。

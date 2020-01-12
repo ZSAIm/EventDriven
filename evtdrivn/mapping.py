@@ -8,19 +8,19 @@ from collections import defaultdict
 class MappingBlueprint:
     """ 控制器事件处理映射蓝图。 """
     def __init__(self):
-        self.__registers = defaultdict()
+        self.__registers = defaultdict(list)
 
     def __iter__(self):
-        return iter(dict(self.__registers.items()))
+        return iter(self.__registers.items())
 
     def inherit_from(self, blueprint):
         """ 从另一个蓝图继承事件处理映射。 """
         self.__registers.update(dict(blueprint))
 
-    def register(self, eid):
+    def register(self, evt):
         """ 注册函数处理映射。 """
         def wrapper(func):
-            self.__registers[eid].append(func)
+            self.__registers[evt].append(func)
             @wraps(func)
             def wrapped(*args, **kwargs):
                 return func(*args, **kwargs)
@@ -48,7 +48,7 @@ class MappingManager:
 
     def update_from_dict(self, d):
         """ 从字典中更新事件处理映射。 """
-        for k, v in d.items():
+        for k, v in dict(d).items():
             if type(v) in (list, tuple):
                 self._mapping[k] = list(v)
             else:

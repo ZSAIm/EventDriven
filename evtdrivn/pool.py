@@ -3,7 +3,6 @@ from .controller import Controller
 from .mapping import MappingManager
 from .signal import EVT_DRI_AFTER, EVT_DRI_SUBMIT, EVT_DRI_RETURN
 from .session import session
-from .listener import Listener
 
 try:
     # py3

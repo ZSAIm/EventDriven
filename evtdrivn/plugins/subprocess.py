@@ -29,6 +29,9 @@ class QueueifyConnection:
     def get(self):
         return self._p2.recv()
 
+    def task_done(self):
+        pass
+
 
 def _subprocess_worker_init(mapping=None, context=None):
     """ 子进程工作线程控制器初始化。
@@ -132,7 +135,7 @@ class Subprocess(BasePlugin):
             self._no_suspend.set()
             self._parent.dispatch(EVT_DRI_SUSPEND, False)
 
-        # 替换父进程控制器的事件处理通道为管道连接，以实现父子进程的通信。
+        # 替换父进程控制器的事件处理通道为进程队列，以实现父子进程的通信。
         self._parent.event_channel = self._parent_channel
         # 为了实现父子进程的空闲状态的同步，patch控制器的方法is_idle、pend、suspend、is_suspended、resume
         # 这里不能直接改写父进程控制器的状态事件，否则会出现冲突的问题。
