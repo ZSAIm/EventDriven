@@ -332,6 +332,12 @@ class Controller:
         session.__context__({})
 
     def __repr__(self):
-        return '<Controller %s>' % self._name
+        status = 'stopped'
+        if self.is_alive():
+            status = 'running'
+        if self.is_suspended():
+            status = 'suspended'
+
+        return '<Controller %s %s>' % (self._name, status)
 
 

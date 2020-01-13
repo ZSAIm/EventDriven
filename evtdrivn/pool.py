@@ -180,12 +180,15 @@ class ControllerPool:
 
     def wait(self, timeout=None):
         """ 等待控制器。 """
+        endtime = None
         for cli in self._cli_pool:
-            start = time.time()
+            if endtime is None:
+                endtime = time.time() + timeout
+            else:
+                timeout = endtime - time.time()
+                if timeout <= 0:
+                    break
             cli.wait(timeout)
-            if timeout is not None:
-                timeout = timeout - time.time() + start
-                timeout = timeout if timeout >= 0 else 0
 
     def shutdown(self, blocking=False):
         """ 关闭线程池。"""
