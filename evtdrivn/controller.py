@@ -295,22 +295,24 @@ class Controller:
                         del session['hdl_kwargs']
                         del session['event_ctx']
 
-                returns = []
                 # 若事件处理被跳过了，那么afters也会被跳过
                 if not self.__skip:
+                    returns = []
                     for hdl in hdl_list:
                         if callable(hdl):
                             # 事件处理函数
                             returns.append(hdl(*hdl_args, **hdl_kwargs))
 
                     # 事件处理函数之后。
-                    for after in afters:
-                        if evt == EVT_DRI_AFTER:
-                            break
-                        if callable(after):
-                            session['returns'] = returns
-                            after()
-                            del session['returns']
+                    # 如果没有定义事件处理，那么也不会执行事件处理之后。
+                    if hdl_list:
+                        for after in afters:
+                            if evt == EVT_DRI_AFTER:
+                                break
+                            if callable(after):
+                                session['returns'] = returns
+                                after()
+                                del session['returns']
 
                 del session['evt']
                 del session['val']
