@@ -22,6 +22,7 @@ class Session(local):
         del self.__static[key]
 
     def __context__(self, context):
+        context = context.copy()
         context['_Session__static'] = self.__static
         self.__dict__.clear()
         self.__dict__.update(context)
