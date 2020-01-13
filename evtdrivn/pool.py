@@ -22,7 +22,7 @@ class ControllerPool:
         session['cid']  : 线程客户端ID号/索引号。
         session['pool']
     """
-    def __init__(self, maxsize=1, mapping=None, context=None, name=None, until_commit=True):
+    def __init__(self, maxsize=1, mapping=None, context=None, static=None, name=None, until_commit=True):
         """
         :param
             maxsize     : 最大线程数。
@@ -40,9 +40,18 @@ class ControllerPool:
         self._mapping = MappingManager(mapping)
         self._mapping.add(EVT_DRI_AFTER, self.__fetch__)
 
-        self._cli_pool = [Controller(name=str(name) + str(_), mapping=dict(self._mapping),
-                                     context=context, static={'cid': _, 'pool': self})
-                          for _ in range(self._maxsize)]
+        # 初始化线程池
+        static = static or {}
+        static = static.copy()
+        self._cli_pool = []
+        static['pool'] = self
+        for index in range(maxsize):
+            static['cli'] = index
+            self._cli_pool.append(
+                Controller(name=str(name) + str(index), mapping=self._mapping,
+                           context=context, static=static)
+            )
+
         # 处理返回消息队列。
         self.return_queue = Queue()
         self.__closed = Event()
