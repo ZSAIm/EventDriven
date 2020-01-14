@@ -22,7 +22,7 @@ class ControllerPool:
         session['cid']  : 线程客户端ID号/索引号。
         session['pool']
     """
-    def __init__(self, maxsize=1, mapping=None, context=None, static=None, name=None, until_commit=True):
+    def __init__(self, maxsize=1, mapping=None, context=None, static=None, name=None, daemon=True, until_commit=True):
         """
         :param
             maxsize     : 最大线程数。
@@ -48,7 +48,7 @@ class ControllerPool:
         for index in range(maxsize):
             static['cli'] = index
             cli_worker = Controller(name=str(name) + str(index), mapping=self.mapping,
-                                    context=context, static=static)
+                                    context=context, static=static, daemon=daemon)
             self._cli_pool.append(cli_worker)
             # 客户端共用一个事件映射，以解决客户端事件处理映射的同步更新。
             cli_worker.mapping = self.mapping
