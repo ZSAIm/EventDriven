@@ -3,7 +3,8 @@
 from multiprocessing import Pipe, Process, Event
 from .base import BasePlugin
 from ..session import session
-from ..signal import EVT_DRI_BEFORE, EVT_DRI_AFTER, EVT_DRI_SHUTDOWN, EVT_DRI_RETURN, EVT_DRI_SUSPEND
+from ..signal import (EVT_DRI_BEFORE, EVT_DRI_AFTER, EVT_DRI_SHUTDOWN, EVT_DRI_RETURN, EVT_DRI_SUSPEND, EVT_DRI_OTHER,
+                      EVT_DRI_SUBMIT)
 from .. import Controller
 
 
@@ -173,14 +174,45 @@ def _subprocess_main_thread(channel_pairs, status_events, init_hdl, init_args, i
         """ 转发返回消息给父进程。 """
         # 为了避免pickle，无法序列化处理的对象。
         # 字符串化所有的对象，以列表的形式返回消息。
-        worker.message(EVT_DRI_RETURN, [str(ret) for ret in session['returns']])
+        bri_worker.message(EVT_DRI_RETURN, [str(ret) for ret in session['returns']])
+
+    def __shutdown__():
+        """ 相互关闭。"""
+        bri_worker.shutdown()
+        worker.shutdown()
 
     def __suspend__():
         """ resume / suspend，父进程操作方法映射。"""
         if session['val']:
-            session['self'].suspend()
+            worker.suspend()
         else:
-            session['self'].resume()
+            worker.resume()
+
+    def __goto_work__(*args, **kwargs):
+        """ 提交任务。 """
+        try:
+            evt = session['orig_evt']
+        except KeyError:
+            evt = session['evt']
+
+        if evt == EVT_DRI_SUBMIT:
+            context = session.__vars__
+            func = context.pop('function')
+            func_args = context.pop('args')
+            func_kwargs = context.pop('kwargs')
+            worker.submit(func, args=func_args, kwargs=func_kwargs, context=context)
+            bri_worker.skip()
+        else:
+            worker.dispatch(evt, session['val'], args=args, kwargs=kwargs, context=session.__vars__)
+
+    bri_worker = Controller(mapping={
+        EVT_DRI_OTHER: __goto_work__,
+        EVT_DRI_SUBMIT: __goto_work__,
+        EVT_DRI_SUSPEND: __suspend__,
+        EVT_DRI_SHUTDOWN: __shutdown__
+    })
+    # 通信线程的通道替换为父子进程之间的通信通道。
+    bri_worker.event_channel, bri_worker.return_channel = channel_pairs
 
     worker = init_hdl(*init_args, **init_kwargs)
     # 为了同步父子进程的状态。
@@ -189,14 +221,14 @@ def _subprocess_main_thread(channel_pairs, status_events, init_hdl, init_args, i
     setattr(worker, '_Controller__no_suspend', not_suspend)
     # 添加必要的内部处理映射。
     worker.mapping.add(EVT_DRI_AFTER, __return__)
-    worker.mapping.add(EVT_DRI_SUSPEND, __suspend__)
-    # 工作线程的通道替换为父子进程之间的通信通道。
-    worker.event_channel, worker.return_channel = channel_pairs
+    worker.mapping.add(EVT_DRI_SHUTDOWN, __shutdown__)
     worker.run()
-    worker.wait()
+    bri_worker.run()
 
+    bri_worker.wait()
+    worker.wait()
     # 注意：这里需要传递值True，这将用于告诉父进程的控制器shutdown事件是子进程要求的关闭。
     # 这是因为父进程控制器的shutdown事件只是用于关闭子进程的控制器，
     # 而父进程的控制器需要完全等待子进程关闭后才进行的关闭操作。
     # 这才能保证了返回返回消息队列的完整。
-    worker.message(EVT_DRI_SHUTDOWN, True)
+    bri_worker.message(EVT_DRI_SHUTDOWN, True)

@@ -1,6 +1,6 @@
 # -*- coding: UTF-8 -*-
 from __future__ import division
-from threading import Event, Thread
+from threading import Event, Thread, current_thread
 from multiprocessing import current_process
 from .session import session
 from .signal import (EVT_DRI_SHUTDOWN, EVT_DRI_AFTER, EVT_DRI_SUBMIT,
@@ -112,7 +112,7 @@ class Controller:
 
     def submit(self, function=None, args=(), kwargs=None, context=None):
         """ 提交处理任务。 """
-        self.dispatch(EVT_DRI_SUBMIT, [function], context, args, kwargs)
+        self.dispatch(EVT_DRI_SUBMIT, function, context, args, kwargs)
 
     def dispatch(self, evt, value=None, context=None, args=(), kwargs=None):
         """ 给控制器事件处理队列通道推送事件。
@@ -233,7 +233,7 @@ class Controller:
             # 如果线程被挂起，那么进入等待。
             self.__no_suspend.wait()
             evt, val, event_ctx, hdl_args, hdl_kwargs = self.event_channel.get()
-            # print('%s, %s, %s, %s, %s, %s' % (current_process().pid, evt, val, event_ctx, hdl_args, hdl_kwargs))
+            # print('%s, %s, %s, %s, %s, %s, %s' % (current_process().pid, current_thread().ident, evt, val, event_ctx, hdl_args, hdl_kwargs))
             # 当取到任务后清除空闲标志位。
             self.__idle.clear()
             # 准备处理函数。
@@ -247,7 +247,7 @@ class Controller:
                     hdl_args = ()
                     hdl_kwargs = {}
                 else:
-                    hdl_list = list(val)
+                    hdl_list = [val]
 
             # 以监听事件响应来通知所有监听该事件的监听者。
             s_push = (i for i in self._listeners if i.check(evt))

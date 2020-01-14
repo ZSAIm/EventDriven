@@ -12,6 +12,12 @@ class Session(local):
     def __static__(self):
         return self.__static
 
+    @property
+    def __vars__(self):
+        d = dict(self.__dict__)
+        d.pop('_Session__static')
+        return d
+
     def __getitem__(self, item):
         return self.__static[item]
 

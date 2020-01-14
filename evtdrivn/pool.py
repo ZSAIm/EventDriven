@@ -79,8 +79,6 @@ class ControllerPool:
                 return True
         return False
 
-    # def is_all_suspended(self):
-
     def __fetch__(self):
         """ 线程客户端从公共队列里面取任务。"""
         # 给取任务上锁是为了同步操作取任务和派遣任务。
