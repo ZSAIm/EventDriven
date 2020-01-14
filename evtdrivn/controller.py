@@ -21,7 +21,7 @@ class Controller:
     """ 事件控制器。 """
 
     def __init__(self, mapping=None, context=None, channel_pairs=None, plugins=(),
-                 static=None, name=None):
+                 static=None, name=None, daemon=True):
         # event_channel 是待处理事件队列。
         # return_channel 是处理返回消息队列。
         self.event_channel, self.return_channel = channel_pairs or (Queue(), Queue())
@@ -35,7 +35,7 @@ class Controller:
 
         # 当前控制器线程对象。
         self.__con_thread = None
-
+        self._daemon = daemon
         # global 属于全局上下文环境， runtime 属于运行时上下文环境， event_ctx 属于事件上下文环境。
         # 若存在同样的上下文属性名，那么会以 global < runtime < event_ctx 的优先级覆盖。
         # 其中 event_ctx 属于单次事件的上下文。runtime 属于运行时创建的上下文， global 属于初始化控制器时所创建的上下文。
@@ -169,7 +169,7 @@ class Controller:
 
         context = context or {}
         self._runtime = context
-        thr = Thread(target=self.__control_thread,
+        thr = Thread(target=self.__control_thread, daemon=self._daemon,
                      args=(context,), name=self._name)
         self.__con_thread = thr
         thr.start()
