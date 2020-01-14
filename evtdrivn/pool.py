@@ -129,7 +129,7 @@ class ControllerPool:
 
     def submit(self, function=None, args=(), kwargs=None, context=None):
         """ 提交任务到待处理队列。"""
-        self.dispatch(EVT_DRI_SUBMIT, [function], context, args, kwargs)
+        self.dispatch(EVT_DRI_SUBMIT, function, context, args, kwargs)
 
     def dispatch(self, eid, value=None, context=None, args=(), kwargs=None):
         """ 提交事件到待处理队列。"""
