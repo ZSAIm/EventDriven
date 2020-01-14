@@ -37,8 +37,8 @@ class ControllerPool:
 
         self._maxsize = maxsize
 
-        self._mapping = MappingManager(mapping)
-        self._mapping.add(EVT_DRI_AFTER, self.__fetch__)
+        self.mapping = MappingManager(mapping)
+        self.mapping.add(EVT_DRI_AFTER, self.__fetch__)
 
         # 初始化线程池
         static = static or {}
@@ -47,10 +47,11 @@ class ControllerPool:
         static['pool'] = self
         for index in range(maxsize):
             static['cli'] = index
-            self._cli_pool.append(
-                Controller(name=str(name) + str(index), mapping=self._mapping,
-                           context=context, static=static)
-            )
+            cli_worker = Controller(name=str(name) + str(index), mapping=self.mapping,
+                                    context=context, static=static)
+            self._cli_pool.append(cli_worker)
+            # 客户端共用一个事件映射，以解决客户端事件处理映射的同步更新。
+            cli_worker.mapping = self.mapping
 
         # 处理返回消息队列。
         self.return_queue = Queue()
@@ -61,14 +62,6 @@ class ControllerPool:
         self._event_queue = Queue()
         # 是否等待任务被安排。
         self._until_commit = until_commit
-
-    def update_mapping(self, mapping):
-        """ 更新全局的事件处理映射。 """
-        self._mapping.set(mapping)
-        self._mapping.add(EVT_DRI_AFTER, self.__fetch__)
-        # 初始化线程池的事件处理映射
-        for cli in self._cli_pool:
-            cli.mapping.set(dict(self._mapping))
 
     def is_alive(self):
         """ 返回控制器池是否在运行。
