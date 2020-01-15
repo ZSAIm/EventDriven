@@ -5,7 +5,8 @@ from multiprocessing import current_process
 from .session import session
 from .signal import (EVT_DRI_SHUTDOWN, EVT_DRI_AFTER, EVT_DRI_SUBMIT,
                      EVT_DRI_BEFORE, EVT_DRI_OTHER)
-from .listener import Listener
+from evtdrivn.utils import Listener
+
 try:
     # py3
     from queue import Queue
