@@ -40,12 +40,10 @@ class Controller:
         # global 属于全局上下文环境， runtime 属于运行时上下文环境， event_ctx 属于事件上下文环境。
         # 若存在同样的上下文属性名，那么会以 global < runtime < event_ctx 的优先级覆盖。
         # 其中 event_ctx 属于单次事件的上下文。runtime 属于运行时创建的上下文， global 属于初始化控制器时所创建的上下文。
-        context = context or {}
-        self._global = context.copy()
+        self._global = dict(context or {})
         self._runtime = {}
 
-        static = static or {}
-        self._static = static.copy()
+        self._static = dict(static or {})
         # 用于表示控制器的实时状态。
         # no_suspend 显示控制器是否属于非挂起状态，如果非挂起状态时Event.set()， 否则Event.clear()
         # idle 显示控制器是否处于空闲状态。这里所说的空闲的意思是：
@@ -126,7 +124,7 @@ class Controller:
         """
         # 不允许对挂起的控制器分派任务。
         assert not self.is_suspended()
-        self.event_channel.put((evt, value, context or {}, args, kwargs or {}))
+        self.event_channel.put((evt, value, dict(context or {}), args, kwargs or {}))
 
     def message(self, evt, value=None, context=None, args=(), kwargs=None):
         """ 给控制器返回通道推送事件。 """
@@ -168,7 +166,7 @@ class Controller:
         else:
             self.__no_suspend.set()
 
-        context = context or {}
+        context = dict(context or {})
         self._runtime = context
         thr = Thread(target=self.__control_thread, daemon=self._daemon,
                      args=(context,), name=self._name)
