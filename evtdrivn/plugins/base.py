@@ -9,6 +9,10 @@ class BasePlugin(ABC):
         self._instance_name = name
         self._options = options
 
+    def __name__(self):
+        """ 返回插件实例名称。 """
+        return self._instance_name
+
     def __patch__(self):
         """ __setup__ 之后对控制器进行打补丁。 """
         pass
