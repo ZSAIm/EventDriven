@@ -44,20 +44,20 @@ class MappingManager:
     def load_from_blueprint(self, blueprint):
         """ 从事件映射蓝图中加载。 """
         self._mapping = defaultdict(list)
-        self.update_from_dict(dict(blueprint))
+        self.update_from(dict(blueprint))
 
-    def update_from_dict(self, d):
+    def update_from(self, d):
         """ 从字典中更新事件处理映射。 """
         for k, v in dict(d).items():
             if type(v) in (list, tuple):
-                self._mapping[k] = list(v)
+                self._mapping[k].extend(list(v))
             else:
-                self._mapping[k] = [v]
+                self._mapping[k].append(v)
 
     def set(self, mapping):
         """ 清空事件映射后更新事件映射。 """
         self.clear()
-        self.update_from_dict(mapping)
+        self.update_from(mapping)
 
     def clear(self):
         """ 清空事件映射。 """
