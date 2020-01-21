@@ -1,17 +1,10 @@
 # -*- coding: UTF-8 -*-
 from .controller import Controller
 from .mapping import MappingManager
-from .signal import EVT_DRI_AFTER, EVT_DRI_SUBMIT, EVT_DRI_RETURN
+from .signal import EVT_DRI_AFTER, EVT_DRI_SUBMIT
 from .session import session
+from .utils import Pending, Queue, queue_Empty
 
-try:
-    # py3
-    from queue import Queue, Empty
-except ImportError:
-    # py2
-    from Queue import Queue, Empty
-
-# import threading
 from threading import Event, Lock
 import time
 
@@ -22,46 +15,68 @@ class ControllerPool:
         session['cid']  : 线程客户端ID号/索引号。
         session['pool']
     """
-    def __init__(self, maxsize=1, mapping=None, context=None, static=None, name=None, daemon=True, until_commit=True):
+    def __init__(self, maxsize, mapping=None, context=None, static=None, name=None, daemon=True):
         """
         :param
             maxsize     : 最大线程数。
             mapping     : 事件处理映射。
             context     : 全局上下文。
             name        : 控制器池名称。
-            until_commit: 如果为True，那么当submit或者dispatch的时候若没有空闲的客户端线程进行安排任务，
-                        那么提交任务将无限阻塞直至任务被安排。
+            daemon      : 守护线程
         """
-        # 线程数必须大于0，且为整数
-        assert maxsize > 0 and type(maxsize) is int
+        assert maxsize > 0
 
         self._maxsize = maxsize
-
+        # 共用事件处理映射管理器。
         self.mapping = MappingManager(mapping)
         self.mapping.add(EVT_DRI_AFTER, self.__fetch__)
 
         # 初始化线程池
-        static = static or {}
-        static = static.copy()
+        static = dict(static or {})
         self._cli_pool = []
         static['pool'] = self
         for index in range(maxsize):
-            static['cli'] = index
-            cli_worker = Controller(name=str(name) + str(index), mapping=self.mapping,
+            # 为线程客户端添加静态的上下文cid用于标识客户端的索引号。
+            static['cid'] = index
+            cli_worker = Controller(name=str(name or id(self)) + str(index), mapping=self.mapping,
                                     context=context, static=static, daemon=daemon)
             self._cli_pool.append(cli_worker)
             # 客户端共用一个事件映射，以解决客户端事件处理映射的同步更新。
+            # 要注意的是，当线程客户端共用同一个处理处理映射这就意味着
+            # 线程客户端不能安装插件（当插件会添加事件映射的时候造成重复安装，因为所有的客户端都会各自进行安装。）
             cli_worker.mapping = self.mapping
 
         # 处理返回消息队列。
-        self.return_queue = Queue()
         self.__closed = Event()
         self.__lock = Lock()
-
+        self.__not_suspended = Event()
+        self.__not_suspended.set()
         # 待处理任务队列。
-        self._event_queue = Queue()
-        # 是否等待任务被安排。
-        self._until_commit = until_commit
+        self.event_queue = Queue()
+
+    def pend(self):
+        """ 等待控制器池空闲，也就是等待处理队列完成。"""
+        self.event_queue.join()
+
+    def wait_for_idle(self, timeout=None):
+        """ 等待所有的线程客户端都处于空闲状态。 """
+        endtime = None
+        for cli in self._cli_pool:
+            if timeout is not None:
+                if endtime is None:
+                    endtime = time.time() + timeout
+                else:
+                    timeout = endtime - time.time()
+                    if timeout <= 0:
+                        raise TimeoutError()
+            cli.wait_for_idle(timeout)
+
+    def is_idle(self):
+        """ 返回控制器池是否处于空闲状态（没有任务在执行）。"""
+        for cli in self._cli_pool:
+            if not cli.is_idle():
+                return False
+        return True
 
     def is_alive(self):
         """ 返回控制器池是否在运行。
@@ -72,26 +87,13 @@ class ControllerPool:
                 return True
         return False
 
-    def __fetch__(self):
-        """ 线程客户端从公共队列里面取任务。"""
-        # 给取任务上锁是为了同步操作取任务和派遣任务。
-        # 避免线程挂起了，但是却又新的任务加入待处理队列。
-        with self.__lock:
-            self.return_queue.put((EVT_DRI_RETURN, session['returns'], (), {}))
-            # 若控制器池发起关闭事件信号后，为了及时关闭线程池，避免线程继续往任务队列中取任务。
-            if not self.__closed.is_set():
-                try:
-                    data = self._event_queue.get_nowait()
-                    # 给线程客户端分派任务
-                    if self._until_commit:
-                        # 触发任务被安排事件。
-                        data[-1].set()
-                        data = data[:-1]
+    def suspend(self):
+        """ 挂起控制器池，这里所谓的挂起就是阻塞工作线程从任务队列取任务。"""
+        self.__not_suspended.clear()
 
-                    session['self'].dispatch(*data)
-                except Empty:
-                    # 挂起线程客户端，处于空闲状态，等待分派新的任务。
-                    session['self'].suspend()
+    def resume(self):
+        """ 恢复挂起。"""
+        self.__not_suspended.set()
 
     def run(self, context=None):
         """ 启动池里面所有的控制器。 """
@@ -109,15 +111,13 @@ class ControllerPool:
                 cli = self.find_suspended_client()
                 if cli:
                     try:
-                        data = self._event_queue.get_nowait()
+                        data = self.event_queue.get_nowait()
+                        self.event_queue.task_done()
                         cli.dispatch(*data)
-                    except Empty:
+                    except queue_Empty:
                         break
                 else:
                     break
-
-    def pend(self):
-        """ 等待任务执行返回。"""
 
     def listen(self, target, allow):
         for cli in self._cli_pool:
@@ -129,62 +129,58 @@ class ControllerPool:
 
     def submit(self, function=None, args=(), kwargs=None, context=None):
         """ 提交任务到待处理队列。"""
-        self.dispatch(EVT_DRI_SUBMIT, function, context, args, kwargs)
+        return self.dispatch(EVT_DRI_SUBMIT, function, context, args, kwargs)
 
     def dispatch(self, eid, value=None, context=None, args=(), kwargs=None):
         """ 提交事件到待处理队列。"""
+        assert not self.__closed.is_set()
+        assert self.__not_suspended.is_set()
         context = context or {}
-
-        self.__lock.acquire()
-        cli = self.find_suspended_client()
-        if cli:
-            # 先恢复线程继续运行。
-            cli.resume()
-            # 如果存在被挂起的线程客户端，直接将任务分派给线程。
-            cli.dispatch(eid, value, context, args, kwargs)
-            self.__lock.release()
-        else:
-            # 没有被空闲的线程客户端，那么将推送到待处理队列。
-            if self._until_commit:
-                wait_evt = Event()
-                data = eid, value, context, args, kwargs, wait_evt
-                self._event_queue.put(data)
-                self.__lock.release()
-                # 等待任务被安排后才返回。
-                wait_evt.wait()
+        pending = Pending()
+        context['__pending'] = pending
+        with self.__lock:
+            cli = self.find_suspended_client()
+            if cli:
+                # 先恢复线程继续运行。
+                cli.resume()
+                # 如果存在被挂起的线程客户端，直接将任务分派给线程。
+                cli.dispatch(eid, value, context, args, kwargs)
             else:
                 data = eid, value, context, args, kwargs
-                self._event_queue.put(data)
-                self.__lock.release()
+                self.event_queue.put(data)
+        return pending
 
     def clean(self):
         """ 清空待处理任务队列。
         返回未处理任务列表。
         """
         clean_list = []
-        while True:
-            try:
-                clean_list.append(self._event_queue.get_nowait())
-            except Empty:
-                break
+        with self.__lock:
+            while True:
+                try:
+                    clean_list.append(self.event_queue.get_nowait())
+                except queue_Empty:
+                    break
         return clean_list
 
     def wait(self, timeout=None):
         """ 等待控制器。 """
         endtime = None
         for cli in self._cli_pool:
-            if endtime is None:
-                endtime = time.time() + timeout
-            else:
-                timeout = endtime - time.time()
-                if timeout <= 0:
-                    break
+            if timeout is not None:
+                if endtime is None:
+                    endtime = time.time() + timeout
+                else:
+                    timeout = endtime - time.time()
+                    if timeout <= 0:
+                        break
             cli.wait(timeout)
 
     def shutdown(self, blocking=False):
         """ 关闭线程池。"""
         self.__closed.set()
-        # 避免线程客户端的关闭信号发生在__fetch__分派任务之前。
+        self.__not_suspended.set()
+        # 直接通知所有的线程在下一个事件进行关断。
         with self.__lock:
             for cli in self._cli_pool:
                 cli.shutdown()
@@ -200,3 +196,32 @@ class ControllerPool:
             if cli.is_suspended():
                 return cli
         return None
+
+    def __fetch__(self):
+        """ 线程客户端从公共队列里面取任务。"""
+        # 给取任务上锁是为了同步操作取任务和派遣任务。
+        # 避免线程挂起了，但是却又新的任务加入待处理队列。
+        with self.__lock:
+            # 等待挂起事件。
+            self.__not_suspended.wait()
+            if not self.__closed.is_set():
+                # 处理由控制器池派遣的任务的等待pending对象。
+                # 如果是独自派遣给线程客户端的任务不必要处理。
+                # 总的来说就是，有__pending属性就处理。
+                pending = getattr(session, '__pending', None)
+                if pending:
+                    pending.set(session['returns'])
+                # 若控制器池发起关闭事件信号后，为了及时关闭线程池，避免线程继续往任务队列中取任务。
+                try:
+                    data = self.event_queue.get_nowait()
+                    self.event_queue.task_done()
+                    # 给线程客户端分派任务
+                    session['self'].dispatch(*data)
+                except queue_Empty:
+                    # 挂起线程客户端，处于空闲状态，等待分派新的任务。
+                    session['self'].suspend()
+
+    def __iter__(self):
+        """ 迭代客户端控制器。 """
+        return iter(self._cli_pool)
+
