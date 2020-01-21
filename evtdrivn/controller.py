@@ -5,10 +5,7 @@ from multiprocessing import current_process
 from .session import session
 from .signal import (EVT_DRI_SHUTDOWN, EVT_DRI_AFTER, EVT_DRI_SUBMIT,
                      EVT_DRI_BEFORE, EVT_DRI_OTHER)
-from evtdrivn.utils import Listener
-
-from .utils import Queue
-
+from .utils import Queue, Listener
 from .plugins.base import PluginManager
 from .mapping import MappingManager
 
@@ -210,7 +207,7 @@ class Controller:
     def skip(self):
         """ 跳过当前事件的处理。
         通常这用于事件处理之前的hook_before事件。
-        这将跳过：当前事件的处理和hook_after事件的处理，
+        这将跳过当前事件之后的所有函数调用。
 
         注意：若当前事件是EVT_DRI_SHUTDOWN控制器的关闭事件，也同样会进行跳过处理。
         """
@@ -321,6 +318,7 @@ class Controller:
                             # 事件处理函数
                             returns.append(hdl(*hdl_args, **hdl_kwargs))
 
+                if not self.__skip:
                     # 事件处理函数之后。
                     # 如果没有定义事件处理，那么也不会执行事件处理之后。
                     if hdl_list:
