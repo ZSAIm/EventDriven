@@ -2,6 +2,12 @@
 
 from collections import namedtuple
 from threading import Event
+try:
+    # py3
+    from queue import Queue, Empty as queue_Empty
+except ImportError:
+    # py2
+    from Queue import Queue, Empty as queue_Empty
 
 
 class Pending:
@@ -24,6 +30,7 @@ class Pending:
         self._event.set()
 
     def get_value(self):
+        """ 返回事件返回响应值。 """
         return self._returns
 
     def __iter__(self):

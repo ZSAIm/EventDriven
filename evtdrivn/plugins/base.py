@@ -107,7 +107,7 @@ class PluginManager:
             self._parent.mapping.add(evt, hdl)
 
         # 添加全局上下文。
-        self._parent._global.update(plugin.__context__())
+        self._parent.__global__.update(plugin.__context__())
 
         self.__name_plugin[name] = plugin
         self.__plugins[pt].append(plugin)
