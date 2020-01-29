@@ -1,7 +1,44 @@
 # -*- coding: UTF-8 -*-
-from evtdrivn.signal import EVT_DRI_TIMING
+""" 定时信号发生器插件 Timer
+
+工作原理
+
++------------------------------------+
+|           PluginManager            |
+|                      +---------+   |
+|                      |  Timer  |   |
+|                      |  x sec  |   |
+|                      +---------+   |
++--------------------------|---------+
+|                          |         |
+|           EVT_DRI_TIMING |         |
+|                          v         |
+|            func  +-----------------+
+|          +-------|  MappingManager |
+|          |       +-----------------+
+|          v                         |
++------------------------------------+
+|                                    |
+|            EventLoop               |
+|                                    |
++------------------------------------+
+
+
+接口说明：
+
+class Timer:
+    def set_timing(self, interval=None):
+        # 设置定时器的定时间隔
+
+
+"""
+
 from .base import BasePlugin
 from threading import Thread, Event
+
+__all__ = ['Timer', 'EVT_DRI_TIMING']
+
+EVT_DRI_TIMING = '|EVT|TIMING|'
 
 
 class Timer(BasePlugin):

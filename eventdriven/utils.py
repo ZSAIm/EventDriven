@@ -2,15 +2,9 @@
 
 from collections import namedtuple
 from threading import Event
-try:
-    # py3
-    from queue import Queue, Empty as queue_Empty
-except ImportError:
-    # py2
-    from Queue import Queue, Empty as queue_Empty
 
 
-class Pending:
+class Pending(object):
     """ 事件执行的等待事件。 """
     __slots__ = '_event', '_returns'
 
@@ -41,7 +35,7 @@ class Pending:
 ForwardingPacket = namedtuple('ForwardingPacket', 'value context')
 
 
-class Listener:
+class Listener(object):
     __slots__ = '_channel', '_allow', '_name'
 
     def __init__(self, queue, allow, name=None):

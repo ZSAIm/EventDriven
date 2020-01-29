@@ -1,8 +1,9 @@
 # -*- coding: UTF-8 -*-
-from abc import ABC, abstractmethod
+from abc import ABC
 
 
 class BasePlugin(ABC):
+
     def __setup__(self, parent, name, **options):
         """ 安装插件过程中调用该方法进行初始化插件。 """
         self._parent = parent

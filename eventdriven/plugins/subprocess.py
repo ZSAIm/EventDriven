@@ -1,5 +1,71 @@
 # -*- coding: UTF-8 -*-
+""" 子进程插件 Subprocess （父进程控制器部分）
 
+工作原理：
+
+            +--------------------------------+                    +--------------------------------+
+            |  Parent Process                |                    |  Child Process                 |
+            +--------------------------------+                    +--------------------------------+
+  dispatch  |                                |                    |   <bri_worker>                 |
+--------------------------->v----------------+                    +----------------+               |
+   submit   |               |   Controller   |    child_channel   |   Controller   |  dispatch     |
+            |               >---------------->>>>>>>>>>>>>>>>>>>>>>---------------->---------v     |
+            |               |                                                      |         |     |
+   Pending  |               |                                                      |         |     |
+<---------------------------<----------------<<<<<<<<<<<<<<<<<<<<<<---------<------+         |     |
+            |               |   Subprocess   |   parent_channel   |         ^                |     |
+            |               |   PluginManager|                    |         |                v     |
+            |               +----------------+                    +--------------------------------+
+            |                                |                    |         ControllerPool         |
+            |                                |                    |           <workers>            |
+            +--------------------------------+                    +--------------------------------+
+                                                                            ^               |
+                                                                  >---------|               v
+                                                                  |   +----------------------------+
+                                                                  |   | Session                    |
+                                                                  |   +----------------------------+
+                                                                  |   | def func(*args, **kwargs): |
+                                                                  |   |    ...                     |
+                                                                  ^---+----------------------------+
+                                                                   return
+
+
+接口说明：
+
+控制器补丁：
+
+class Controller:
+    def dispatch(self, evt, value=None, context=None, args=(), kwargs=None):
+        # 派遣事件给子进程工作线程控制器池。
+
+    def submit(self, function=None, args=(), kwargs=None, context=None):
+        # 派遣处理函数给子进程工作线程。
+
+    def pend(self):
+        # 等待子进程工作线程控制器池任务队列取空。
+        # 仅仅是工作线程任务队列被取完，并不意味着任务全部完成。
+
+    def is_idle(self):
+        # 返回子进程工作线程控制器池是否处于空闲状态。
+
+
+插件方法：
+
+class Subprocess(BasePlugin):
+    @property
+    def process(self):
+        # 返回子进程的进程对象。
+
+    def add_plugin(self, hdl, *args, **kwargs):
+        # 为子进程通信桥控制器安装插件。
+
+    def get_instance(self, hdl, *args, **kwargs):
+        # 在子进程创建实例，并返回虚拟实例在父进程进行方法调用。
+
+
+
+
+"""
 from ._subprocess import EVT_INSTANCE_INIT, EVT_ADD_PLUGIN, EVT_WORKER_INSTANCE_CALL, EVT_WORKER_IS_IDLE
 from ._subprocess import subprocess_main_thread, default_worker_initializer
 from ..signal import (EVT_DRI_BEFORE, EVT_DRI_SHUTDOWN, EVT_DRI_RETURN, EVT_DRI_SUBMIT)
@@ -8,6 +74,8 @@ from .base import BasePlugin
 from ..utils import Pending
 from multiprocessing import Pipe, Process, Event as ProcessEvent, Semaphore
 from threading import Lock as ThreadLock
+
+__all__ = ['Subprocess', ]
 
 
 def _create_process_channel_pairs():
@@ -74,7 +142,8 @@ class VirtualAttribute(object):
             if isinstance(top, VirtualInstance):
                 break
             top = top.__parent__
-        return top.__parent__.instance_call(str(self), *args, **kwargs)
+
+        return top.__parent__.__call__(str(self), *args, **kwargs)
 
     def __getattr__(self, item):
         """ 获取下一级虚拟子级对象/属性。 """
@@ -152,7 +221,7 @@ class Subprocess(BasePlugin):
         """ 子进程通信桥安装插件。 """
         return self._parent.dispatch(EVT_ADD_PLUGIN, args=(hdl, args, kwargs))
 
-    def instance_call(self, call_chain, *args, **kwargs):
+    def __call__(self, call_chain, *args, **kwargs):
         """ 调用子进程实例方法。 """
         return self._parent.dispatch(EVT_WORKER_INSTANCE_CALL, args=(call_chain, args, kwargs))
 

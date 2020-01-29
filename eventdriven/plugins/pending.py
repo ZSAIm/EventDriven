@@ -1,10 +1,48 @@
 # -*- coding: UTF-8 -*-
+""" 事件处理返回等待事件 Pending
+
+工作原理
+
++------------------------------------+
+|           PluginManager            |
+|                     +---------+    |
+|                     | Pending |    |
+|                     +---------+    |
++------------------------------------+
+|                                    |
+|           func   +-----------------+     EVT
+|        +---------|  MappingManager |<------------ dispatch
+|        |         +-----------------+——————————-—> Pending
+|        |                           |   return
+|        v                           |
++------------------------------------+
+|                                    |     func
+|           EventLoop                |<------------ submit
+|                                    |------------> Pending
++------------------------------------+   return
+
+
+接口说明：
+
+控制器补丁：
+
+class Controller:
+    def dispatch(self, evt, value=None, context=None, args=(), kwargs=None):
+        # 返回事件处理等待对象。
+
+    def submit(self, function=None, args=(), kwargs=None, context=None):
+        # 返回事件处理等待对象。
+
+"""
+
 
 from .base import BasePlugin
 from ..signal import EVT_DRI_AFTER, EVT_DRI_SUBMIT
 from ..session import session
 from threading import Lock
 from ..utils import Pending
+
+__all__ = ['EventPending',]
 
 
 class EventPending(BasePlugin):

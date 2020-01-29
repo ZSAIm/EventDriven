@@ -3,7 +3,6 @@ from threading import local
 
 
 class Session(local):
-
     def __init__(self):
         super(Session, self).__init__()
         self.__static = {}

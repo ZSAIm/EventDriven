@@ -1,6 +1,6 @@
 # -*- coding: UTF-8 -*-
 
-from evtdrivn.signal import EVT_DRI_AFTER, EVT_DRI_BEFORE
+from .signal import EVT_DRI_AFTER, EVT_DRI_BEFORE
 from functools import wraps
 from collections import defaultdict
 

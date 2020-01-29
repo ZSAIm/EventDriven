@@ -1,11 +1,42 @@
 # -*- coding: UTF-8 -*-
+""" 事件驱动控制器。
+
+工作原理:
+
++------------------------------------+   instance
+|           PluginManager            |<------------ add_plugin
++------------------------------------+
+|   |                     |          |
+|   |                     v          |
+|   |       func   +-----------------+     EVT
+|   |    +---------|  MappingManager |<------------ dispatch
+|   |    |         +-----------------+
+|   |    |                           |
+|   v    v                           |
++------------------------------------+
+|                                    |     func
+|           EventLoop                |<------------ submit
+|                                    |
++------------------------------------+
+    ^                    |    process     +-----------------------------+
+    |                    +--------------> | Session                     |
+    |                                     +-----------------------------+
+    |                                     | def func(*args, **kwargs):  |
+    |                                     |    ...                      |
+    |                                     +-----------------------------+
+    |                 return                           v
+    ^--------------------------------------------------<
+
+"""
+
 from __future__ import division
-from threading import Event, Thread, current_thread
+from threading import Thread, Event, current_thread
+from queue import Queue
 from multiprocessing import current_process
 from .session import session
 from .signal import (EVT_DRI_SHUTDOWN, EVT_DRI_AFTER, EVT_DRI_SUBMIT,
                      EVT_DRI_BEFORE, EVT_DRI_OTHER)
-from .utils import Queue, Listener
+from .utils import Listener
 from .plugins.base import PluginManager
 from .mapping import MappingManager
 
@@ -176,7 +207,7 @@ class Controller:
 
         context = dict(context or {})
         self._runtime = context
-        thr = Thread(target=self.__control_thread, daemon=self._daemon,
+        thr = Thread(target=self.__eventloop_thread, daemon=self._daemon,
                      args=(context,), name=self._name)
         self.__con_thread = thr
         thr.start()
@@ -236,7 +267,7 @@ class Controller:
             if ret is clean_finished_flag:
                 break
 
-    def __control_thread(self, runtime_ctx):
+    def __eventloop_thread(self, runtime_ctx):
         # 首次进入初始化全局环境。
         session['self'] = self
         session.__static__.update(self._static)

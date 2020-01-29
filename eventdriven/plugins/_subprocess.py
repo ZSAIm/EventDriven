@@ -1,4 +1,5 @@
 # -*- coding: UTF-8 -*-
+""" 子进程插件 Subprocess （父进程控制器部分）。"""
 
 from ..mapping import MappingBlueprint
 from ..controller import Controller
@@ -6,7 +7,7 @@ from ..pool import ControllerPool
 from ..session import session
 from ..signal import (EVT_DRI_AFTER, EVT_DRI_SHUTDOWN, EVT_DRI_RETURN, EVT_DRI_SUSPEND, EVT_DRI_OTHER, EVT_DRI_SUBMIT)
 from threading import Event
-from ..utils import Queue
+from queue import Queue
 
 
 class QueueWithEvent(Queue):
@@ -36,6 +37,13 @@ def _subprocess_worker_initializer(*args, **kwargs):
     """ 子进程工作线程控制器初始化。
     若有其他如添加插件需求可以重写该方法。
     需要返回控制器实例。
+    :param
+        maxsize : 工作线程池的最大数量
+        mapping : 工作线程池的事件处理映射
+        context : 工作线程池的全局上下文
+        static  : 工作线程池的静态上下文
+        name    : 工作线程池的名称
+        daemon  : 工作线程池是否为守护线程
     """
     return ControllerPool(*args, **kwargs)
 

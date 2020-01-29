@@ -1,9 +1,42 @@
 # -*- coding: UTF-8 -*-
+""" 控制器池
+
+工作原理:
+
++------------------------------------+
+|                                    |     EVT/func
+|           event_queue              |<--------------- dispatch/submit
+|                                    |---------------> Pending
++------------------------------------+     return
+|   |                     |          |
+|   |                     v          |
+|   |       func   +-----------------+
+|   |    +---------|  MappingManager |
+|   |    |         +-----------------+
+|   |    |                           |
+|   v    v                           |
++------------------------------------+
+|                                    |     process1                       process2
+|           ClientPool               |------------------+-----------------------------------+----------- ...
+|                                    |                  |                                   |
++------------------------------------+                  v                                   v
+    ^                                     +-----------------------------+    +-----------------------------+
+    |                                     | Session1                    |    | Session2                    |
+    |                                     +-----------------------------+    +-----------------------------+
+    |                                     | def func1(*args, **kwargs): |    | def func2(*args, **kwargs): |
+    |                                     |    ...                      |    |    ...                      |
+    |                                     +-----------------------------+    +-----------------------------+
+    |                 return                            v                                  v
+    ^---------------------------------------------------<----------------------------------<------------ ...
+
+"""
+
 from .controller import Controller
 from .mapping import MappingManager
 from .signal import EVT_DRI_AFTER, EVT_DRI_SUBMIT
 from .session import session
-from .utils import Pending, Queue, queue_Empty
+from .utils import Pending
+from queue import Queue, Empty
 
 from threading import Event, Lock
 import time
@@ -114,7 +147,7 @@ class ControllerPool:
                         data = self.event_queue.get_nowait()
                         self.event_queue.task_done()
                         cli.dispatch(*data)
-                    except queue_Empty:
+                    except Empty:
                         break
                 else:
                     break
@@ -159,7 +192,7 @@ class ControllerPool:
             while True:
                 try:
                     clean_list.append(self.event_queue.get_nowait())
-                except queue_Empty:
+                except Empty:
                     break
         return clean_list
 
@@ -217,7 +250,7 @@ class ControllerPool:
                     self.event_queue.task_done()
                     # 给线程客户端分派任务
                     session['self'].dispatch(*data)
-                except queue_Empty:
+                except Empty:
                     # 挂起线程客户端，处于空闲状态，等待分派新的任务。
                     session['self'].suspend()
 
