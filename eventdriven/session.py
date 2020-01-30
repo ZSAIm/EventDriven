@@ -11,6 +11,10 @@ class Session(local):
     def __static__(self):
         return self.__static
 
+    @__static__.setter
+    def __static__(self, value):
+        self.__static = value
+
     @property
     def __vars__(self):
         d = dict(self.__dict__)

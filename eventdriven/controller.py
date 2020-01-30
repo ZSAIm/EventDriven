@@ -269,8 +269,8 @@ class Controller:
 
     def __eventloop_thread(self, runtime_ctx):
         # 首次进入初始化全局环境。
+        session.__static__ = self._static
         session['self'] = self
-        session.__static__.update(self._static)
         session.__context__(self._global)
         while True:
             # 进入空闲状态，即没有任务处理的状态。
