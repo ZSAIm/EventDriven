@@ -60,17 +60,29 @@ EVT_WORKER_IS_IDLE = '|EVT|WORKER|IDLE|'
 
 # 工作线程控制器事件：
 EVT_WORKER_INSTANCE_CALL = '|EVT|INS|CALL|'
+EVT_WORKER_PROPERTY_GET = '|EVT|PROPERTY|GET|'
 
 
-@_process_worker.register(EVT_WORKER_INSTANCE_CALL)
-def _instance_call(call_chain, args, kwargs):
-    """ 父进程的调用链解析调用。"""
-    chain = call_chain.split('.')
+def _parse_instance_chain(chain_str):
+    """ 返回对象链解析出来的实例对象。"""
+    chain = chain_str.split('.')
     instance_name = chain.pop(0)
     attr = session['instances'][instance_name]
     for attr_name in chain:
         attr = getattr(attr, attr_name)
-    return attr(*args, **kwargs)
+    return attr
+
+
+@_process_worker.register(EVT_WORKER_INSTANCE_CALL)
+def _instance_call(chain, args, kwargs):
+    """ 父进程的调用链解析调用。"""
+    return _parse_instance_chain(chain)(*args, **kwargs)
+
+
+@_process_worker.register(EVT_WORKER_PROPERTY_GET)
+def _property_get(chain):
+    """ 属性值返回。"""
+    return _parse_instance_chain(chain)
 
 
 @_process_worker.register(EVT_DRI_AFTER)

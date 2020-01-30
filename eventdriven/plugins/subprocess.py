@@ -66,7 +66,8 @@ class Subprocess(BasePlugin):
 
 
 """
-from ._subprocess import EVT_INSTANCE_INIT, EVT_ADD_PLUGIN, EVT_WORKER_INSTANCE_CALL, EVT_WORKER_IS_IDLE
+from ._subprocess import (EVT_INSTANCE_INIT, EVT_ADD_PLUGIN, EVT_WORKER_INSTANCE_CALL,
+                          EVT_WORKER_IS_IDLE, EVT_WORKER_PROPERTY_GET)
 from ._subprocess import subprocess_main_thread, default_worker_initializer
 from ..signal import (EVT_DRI_BEFORE, EVT_DRI_SHUTDOWN, EVT_DRI_RETURN, EVT_DRI_SUBMIT)
 from .. import session
@@ -134,6 +135,15 @@ class VirtualAttribute(object):
         """ 返回属性的父对象。"""
         return self.__parent
 
+    @property
+    def __chain__(self):
+        """ 返回当前级别的虚拟调用链。"""
+        return '%s.%s' % (self.__parent.__chain__, self.__name)
+
+    def __getattr__(self, item):
+        """ 获取下一级虚拟子级对象/属性。 """
+        return VirtualAttribute(self, item)
+
     def __call__(self, *args, **kwargs):
         """ 虚拟方法的调用。就是一个类rpc。"""
         # 顶级父级就是实例对象，所以这里搜索顶级父级以到达实例对象。
@@ -143,15 +153,17 @@ class VirtualAttribute(object):
                 break
             top = top.__parent__
 
-        return top.__parent__.__call__(str(self), *args, **kwargs)
-
-    def __getattr__(self, item):
-        """ 获取下一级虚拟子级对象/属性。 """
-        return VirtualAttribute(self, item)
+        return top.__parent__.method_call(self.__chain__, *args, **kwargs)
 
     def __str__(self):
-        """ 返回当前级别的虚拟调用链。"""
-        return '%s.%s' % (str(self.__parent), self.__name)
+        """ 返回实例属性的文本值。"""
+        top = self.__parent
+        while True:
+            if isinstance(top, VirtualInstance):
+                break
+            top = top.__parent__
+        pend = top.__parent__.property_get(self.__chain__)
+        return pend.pend()[0]
 
 
 class VirtualInstance(object):
@@ -165,13 +177,14 @@ class VirtualInstance(object):
         """ 返回实例对象的父级。实例对象的父级就是子进程插件。 """
         return self.__parent
 
+    @property
+    def __chain__(self):
+        """ 返回当前实例对象名称。 """
+        return self.__name
+
     def __getattr__(self, item):
         """ 获取下一级虚拟子级对象/属性。 """
         return VirtualAttribute(self, item)
-
-    def __str__(self):
-        """ 返回当前实例对象名称。 """
-        return self.__name
 
 
 class Subprocess(BasePlugin):
@@ -221,9 +234,13 @@ class Subprocess(BasePlugin):
         """ 子进程通信桥安装插件。 """
         return self._parent.dispatch(EVT_ADD_PLUGIN, args=(hdl, args, kwargs))
 
-    def __call__(self, call_chain, *args, **kwargs):
+    def method_call(self, attr_chain, *args, **kwargs):
         """ 调用子进程实例方法。 """
-        return self._parent.dispatch(EVT_WORKER_INSTANCE_CALL, args=(call_chain, args, kwargs))
+        return self._parent.dispatch(EVT_WORKER_INSTANCE_CALL, args=(attr_chain, args, kwargs))
+
+    def property_get(self, attr_chain):
+        """ 请求获取子进程的属性文本值。"""
+        return self._parent.dispatch(EVT_WORKER_PROPERTY_GET, args=(attr_chain,))
 
     def get_instance(self, hdl, *args, **kwargs):
         """ 返回在子进程中创建的实例在父进程中的对应的虚拟实例。"""
