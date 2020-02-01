@@ -169,13 +169,13 @@ class Controller:
         """ 给控制器返回通道推送事件。 """
         self.return_channel.put((evt, value, context or {}, args, kwargs or {}))
 
-    def listen(self, target, allow):
+    def listen(self, target, allow, name=None):
         """ 监听指定控制器的事件。 """
-        target.listeners.append(Listener(self.event_channel, allow))
+        target.listeners.append(Listener(self.event_channel, allow, name))
 
-    def listened_by(self, queue, allow):
+    def listened_by(self, queue, allow, name=None):
         """ 允许被队列Queue监听。"""
-        self.listeners.append(Listener(queue, allow))
+        self.listeners.append(Listener(queue, allow, name))
 
     def shutdown(self):
         """ 发送关闭控制器的信号。"""

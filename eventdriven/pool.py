@@ -154,11 +154,11 @@ class ControllerPool:
 
     def listen(self, target, allow):
         for cli in self._cli_pool:
-            target.listen(target, allow, cli.name)
+            target.listen(cli, allow, cli.name)
 
-    def listened_by(self, queue, allow):
+    def listened_by(self, queue, allow, name=None):
         for cli in self._cli_pool:
-            cli.listened_by(queue, allow)
+            cli.listened_by(queue, allow, name)
 
     def submit(self, function=None, args=(), kwargs=None, context=None):
         """ 提交任务到待处理队列。"""
