@@ -89,11 +89,14 @@ def _property_get(chain):
 @_process_bri.register(EVT_DRI_AFTER)
 def __return__():
     """ 转发返回消息给父进程。 """
-    # 为了避免pickle无法序列化处理的对象。
-    # 字符串化所有的对象，然后以列表的形式返回消息。
     if session['evt'] != EVT_DRI_SHUTDOWN:
         pending_id = getattr(session, '__pending_id')
-        session['bri_worker'].message(EVT_DRI_RETURN, (pending_id, [str(ret) for ret in session['returns']]))
+        try:
+            session['bri_worker'].message(EVT_DRI_RETURN, (pending_id, session['returns']))
+        except TypeError:
+            # can't pickle _thread.lock objects
+            # 对于无法pickle序列化处理的对象，就字符串化返回结果。并以列表的形式返回消息。
+            session['bri_worker'].message(EVT_DRI_RETURN, (pending_id, [str(ret) for ret in session['returns']]))
 
 
 @_process_worker.register(EVT_DRI_SHUTDOWN)

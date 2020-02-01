@@ -260,6 +260,10 @@ class Subprocess(BasePlugin):
 
         return ins
 
+    def __getitem__(self, item):
+        """ 返回已定义的虚拟实例。 """
+        return self.__instances[item]
+
     def __transfer__(self):
         """ 在事件处理之前拦截所有的事件处理函数，并转发事件给子进程。
         :param
