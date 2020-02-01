@@ -76,16 +76,16 @@ from ..utils import Pending
 from multiprocessing import Pipe, Process, Event as ProcessEvent, Semaphore
 from threading import Lock as ThreadLock
 
-__all__ = ['Subprocess', ]
+__all__ = ['Subprocess', 'QueueifyPipeConnection']
 
 
-def _create_process_channel_pairs():
+def create_process_channel_pairs():
     """ 创建进程Pipe的队列化通信通道对。"""
     p1, p2 = Pipe()
-    return QueueifyConnection(p1, p2), QueueifyConnection(p2, p1)
+    return QueueifyPipeConnection(p1, p2), QueueifyPipeConnection(p2, p1)
 
 
-class QueueifyConnection:
+class QueueifyPipeConnection:
     """ 管道Pipe队列化的连接器。
     主要是为了实现与队列使用方法一致的接口。
     """
@@ -202,7 +202,7 @@ class Subprocess(BasePlugin):
 
         """
         # 进程通信通道。
-        self._parent_channel, self._child_channel = _create_process_channel_pairs()
+        self._parent_channel, self._child_channel = create_process_channel_pairs()
 
         self._process = None
         # 同步进程事件。
