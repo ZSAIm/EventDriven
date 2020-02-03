@@ -62,21 +62,31 @@ class Subprocess(BasePlugin):
     def get_instance(self, hdl, *args, **kwargs):
         # 在子进程创建实例，并返回虚拟实例在父进程进行方法调用。
 
+    def del_instance(self, instance):
+        # 删除子进程下的实例（注意这只是删除在全局的标记）
 
+    def method_call(self, attr_chain, *args, **kwargs):
+        #调用子进程实例方法。
 
+    def property_get(self, attr_chain):
+        # 请求获取子进程的属性文本值。
+
+    def __getitem__(self, item):
+        # 返回已定义的虚拟实例。
 
 """
 from ._subprocess import (EVT_INSTANCE_INIT, EVT_ADD_PLUGIN, EVT_WORKER_INSTANCE_CALL,
-                          EVT_WORKER_IS_IDLE, EVT_WORKER_PROPERTY_GET)
+                          EVT_WORKER_IS_IDLE, EVT_WORKER_PROPERTY_GET, EVT_INSTANCE_DEL)
 from ._subprocess import subprocess_main_thread, default_worker_initializer
-from ..signal import (EVT_DRI_BEFORE, EVT_DRI_SHUTDOWN, EVT_DRI_RETURN, EVT_DRI_SUBMIT)
+from ..signal import (EVT_DRI_BEFORE, EVT_DRI_AFTER, EVT_DRI_OTHER, EVT_DRI_SHUTDOWN, EVT_DRI_RETURN, EVT_DRI_SUBMIT)
 from .. import session
 from .base import BasePlugin
 from ..utils import Pending
-from multiprocessing import Pipe, Process, Event as ProcessEvent, Semaphore
+from multiprocessing import Pipe, Process, Event as ProcessEvent, Semaphore, Lock as ProcessLock
 from threading import Lock as ThreadLock
+import pickle
 
-__all__ = ['Subprocess', 'QueueifyPipeConnection']
+__all__ = ['Subprocess', 'create_process_channel_pairs']
 
 
 def create_process_channel_pairs():
@@ -89,7 +99,7 @@ class QueueifyPipeConnection:
     """ 管道Pipe队列化的连接器。
     主要是为了实现与队列使用方法一致的接口。
     """
-    __slots__ = '_p1', '_p2', '_empty', '_unfinished_tasks'
+    __slots__ = '_p1', '_p2', '_empty', '_unfinished_tasks', '_lock'
 
     def __init__(self, p1, p2):
         self._p1 = p1
@@ -99,25 +109,25 @@ class QueueifyPipeConnection:
         self._unfinished_tasks = Semaphore(0)
         # 空队列事件，这将用于join。
         self._empty = ProcessEvent()
+        self._lock = ProcessLock()
 
     def put(self, value):
-        # 队列数据计数+1
-        self._unfinished_tasks.release()
-        return self._p1.send(value)
+        with self._lock:
+            # 队列数据计数+1
+            self._unfinished_tasks.release()
+            self._empty.clear()
+        self._p1.send(value)
 
     def get(self):
-        ret = self._p2.recv()
-        # 队列数据计数-1
-        self._unfinished_tasks.acquire(False)
-        # 为了实现方法join，当取出后队列的数据量为0，那么空队列事件置位。
-        if not self._unfinished_tasks.get_value():
-            self._empty.set()
-        return ret
+        return self._p2.recv()
 
     def task_done(self):
-        """ 只是从形式上统一队列的方法task_done。
-        事实上对于管道队列化的连接器的这方法不会有什么操作。
-        """
+        with self._lock:
+            # 队列数据计数-1
+            self._unfinished_tasks.acquire(False)
+            # 为了实现方法join，当取出后队列的数据量为0，那么空队列事件置位。
+            if not self._unfinished_tasks.get_value():
+                self._empty.set()
 
     def join(self):
         """ 等待队列化管道被取完。"""
@@ -178,6 +188,11 @@ class VirtualInstance(object):
         return self.__parent
 
     @property
+    def __name__(self):
+        """ 返回实例的名称。"""
+        return self.__name
+
+    @property
     def __chain__(self):
         """ 返回当前实例对象名称。 """
         return self.__name
@@ -198,7 +213,7 @@ class Subprocess(BasePlugin):
             init_args   : 初始化所需要的列表参数。
             init_kwargs : 初始化所需要的字典参数。
 
-        默认 init_hdl = _subprocess_worker_init(mapping, context)
+        默认 default_worker_initializer = _subprocess_worker_initializer(mapping, context)
 
         """
         # 进程通信通道。
@@ -234,16 +249,17 @@ class Subprocess(BasePlugin):
         """ 子进程通信桥安装插件。 """
         return self._parent.dispatch(EVT_ADD_PLUGIN, args=(hdl, args, kwargs))
 
-    def method_call(self, attr_chain, *args, **kwargs):
-        """ 调用子进程实例方法。 """
-        return self._parent.dispatch(EVT_WORKER_INSTANCE_CALL, args=(attr_chain, args, kwargs))
-
-    def property_get(self, attr_chain):
-        """ 请求获取子进程的属性文本值。"""
-        return self._parent.dispatch(EVT_WORKER_PROPERTY_GET, args=(attr_chain,))
+    def del_instance(self, instance):
+        """删除子进程下的实例（注意这只是删除在全局的标记）"""
+        assert isinstance(instance, VirtualInstance)
+        self._parent.dispatch(EVT_INSTANCE_DEL, args=(instance.__name__,))
+        del self.__instances[instance.__name__]
 
     def get_instance(self, hdl, *args, **kwargs):
         """ 返回在子进程中创建的实例在父进程中的对应的虚拟实例。"""
+        if isinstance(hdl, str):
+            return self.__instances[hdl]
+
         ins = None
         cnt = 0
         # 搜索可用的变量名。
@@ -260,6 +276,14 @@ class Subprocess(BasePlugin):
 
         return ins
 
+    def method_call(self, attr_chain, *args, **kwargs):
+        """ 调用子进程实例方法。 """
+        return self._parent.dispatch(EVT_WORKER_INSTANCE_CALL, args=(attr_chain, args, kwargs))
+
+    def property_get(self, attr_chain):
+        """ 请求获取子进程的属性文本值。"""
+        return self._parent.dispatch(EVT_WORKER_PROPERTY_GET, args=(attr_chain,))
+
     def __getitem__(self, item):
         """ 返回已定义的虚拟实例。 """
         return self.__instances[item]
@@ -275,30 +299,48 @@ class Subprocess(BasePlugin):
             session['evt']          : 发生的事件
             session['val']          : 发生事件传递的值
         """
-        # 父进程的控制器的事件处理映射不同于子进程的事件处理映射，
-        # 在没有定义响应事件的情况下，会处理默认事件。此时目标事件会被更改为EVT_DRI_OTHER，
-        # 所以在事件转发的阶段，尝试获取原目标事件，避免错误的转发事件。
-        try:
-            evt = session['orig_evt']
-        except KeyError:
-            evt = session['evt']
+        # 为了实现父进程控制器作为工作者处理定义的事件。所以对于除了内置事件外定义的事件都让其进行处理。
+        evt = session['evt']
+        if evt in (EVT_DRI_OTHER, EVT_DRI_SUBMIT, EVT_DRI_SHUTDOWN):
+            try:
+                evt = session['orig_evt']
+            except KeyError:
+                pass
 
-        if evt == EVT_DRI_RETURN:
-            pending_id, value = session['val']
-            # 响应事件返回Pending
-            pend = self._unfinished_events.pop(pending_id)
-            pend.set(value)
-        else:
-            # 拦截事件处理函数列表。
-            session['hdl_list'].clear()
-            self._child_channel.put((evt, session['val'], session['event_ctx'],
-                                     session['hdl_args'], session['hdl_kwargs']))
+            if evt == EVT_DRI_RETURN:
+                pending_id, value = session['val']
+                # 响应事件返回Pending
+                pend = self._unfinished_events.pop(pending_id)
+                return_list = []
+                for ret in value:
+                    if type(ret) in pickle.bytes_types:
+                        return_list.append(pickle.loads(ret))
+                    else:
+                        return_list.append(ret)
+                pend.set(return_list)
+            else:
+                # 拦截事件处理函数列表。
+                self._child_channel.put((evt, session['val'], session['event_ctx'],
+                                         session['hdl_args'], session['hdl_kwargs']))
 
-        # 若是关闭控制器事件 EVT_DRI_SHUTDOWN，那么屏蔽该事件，
-        # 而是应当在子进程将要关闭后发送关闭信号给父进程。
-        # 这里通过判断事件EVT_DRI_SHUTDOWN的值来判断是否由子进程发送的关闭事件。
-        if evt == EVT_DRI_SHUTDOWN and not session['val']:
-            self._parent.skip()
+            if evt == EVT_DRI_SHUTDOWN:
+                # 若是关闭控制器事件 EVT_DRI_SHUTDOWN，那么屏蔽该事件，
+                # 而是应当在子进程将要关闭后发送关闭信号给父进程。
+                # 这里通过判断事件EVT_DRI_SHUTDOWN的值来判断是否由子进程发送的关闭事件。
+                if not session['val']:
+                    self._parent.skip()
+            else:
+                # 跳过 EVT_DRI_OTHER 和 EVT_DRI_SUBMIT 事件
+                self._parent.skip()
+
+    def __return__(self):
+        """ 事件处理执行返回结果返回。
+        :param
+            session['returns']  : 事件处理执行返回结果列表
+        """
+        pending_id = getattr(session, '__pending_id')
+        pend = self._unfinished_events.pop(pending_id)
+        pend.set(session['returns'])
 
     def __patch__(self):
         def dispatch(evt, value=None, context=None, args=(), kwargs=None):
@@ -324,18 +366,23 @@ class Subprocess(BasePlugin):
             # """ 返回子进程通信桥是否处于空闲状态。"""
             """ 返回工作线程是否处于空闲状态。 """
             pending = dispatch(EVT_WORKER_IS_IDLE)
-            return True if pending.pend()[0].lower() == 'true' else False
+            return pending.pend()[0]
 
         def pend():
             """ 等待被父进程派遣的事件全部被子进程的工作线程接收。 """
             # 等待的顺序：
-            #   1. 子进程通信桥控制器事件队列完全取出并且处于最后一个事件的转发过程中。
-            #   2. 子进程通信桥控制器事件最后一个事件处理完毕，并且在之后的处于空闲状态。
-            #   3. 工作线程任务队列被完全取完。
+            #   1. 父进程队列取空。
+            #   2. 等待所有事件处理完毕即已完成事件转发。
+            #   3. 子进程通信桥控制器事件队列完全取出并且处于最后一个事件的转发过程中。
+            #   4. 子进程通信桥控制器事件最后一个事件处理完毕，并且在之后的处于空闲状态。
+            #   5. 工作线程任务队列被完全取完。
+            pend_super()
+            self._parent.wait_for_idle()
             self._child_channel.join()
             self._bridge_idle_event.wait()
             self._workers_empty_queue_event.wait()
 
+        pend_super = self._parent.pend
         dispatch_super = self._parent.dispatch
         # 安装父子进程的任务派遣Pending等待。
         self._parent.dispatch = dispatch
@@ -362,6 +409,7 @@ class Subprocess(BasePlugin):
     def __mapping__(self):
         return {
             EVT_DRI_BEFORE: self.__transfer__,
+            EVT_DRI_AFTER: self.__return__
         }
 
     @staticmethod

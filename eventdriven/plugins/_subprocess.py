@@ -5,9 +5,11 @@ from ..mapping import MappingBlueprint
 from ..controller import Controller
 from ..pool import ControllerPool
 from ..session import session
-from ..signal import (EVT_DRI_AFTER, EVT_DRI_SHUTDOWN, EVT_DRI_RETURN, EVT_DRI_SUSPEND, EVT_DRI_OTHER, EVT_DRI_SUBMIT)
-from threading import Event
+from ..signal import (EVT_DRI_AFTER, EVT_DRI_SHUTDOWN, EVT_DRI_RETURN,
+                      EVT_DRI_SUSPEND, EVT_DRI_OTHER, EVT_DRI_SUBMIT)
+from multiprocessing import Event, Lock as ProcessLock
 from queue import Queue
+import pickle
 
 
 class QueueWithEvent(Queue):
@@ -18,19 +20,19 @@ class QueueWithEvent(Queue):
         if not empty_event:
             empty_event = Event()
         self._empty = empty_event
+        self._lock = ProcessLock()
 
-    def _put(self, item):
-        # super()._put(item)
-        self.queue.append(item)
-        # 任务入列说明队列必然非空。
-        self._empty.clear()
+    def put(self, item, block=True, timeout=None):
+        with self._lock:
+            super(QueueWithEvent, self).put(item, block, timeout)
+            # 任务入列说明队列必然非空。
+            self._empty.clear()
 
-    def _get(self):
-        # data = super()._get()
-        data = self.queue.popleft()
-        if not len(self.queue):
-            self._empty.set()
-        return data
+    def task_done(self):
+        with self._lock:
+            super(QueueWithEvent, self).task_done()
+            if not self.unfinished_tasks:
+                self._empty.set()
 
 
 def _subprocess_worker_initializer(*args, **kwargs):
@@ -55,6 +57,7 @@ _process_bri = MappingBlueprint()
 _process_worker = MappingBlueprint()
 # 通信桥控制器事件：
 EVT_INSTANCE_INIT = '|EVT|INS|INIT|'
+EVT_INSTANCE_DEL = '|EVT|INS|DEL|'
 EVT_ADD_PLUGIN = '|EVT|PLUGIN|ADD|'
 EVT_WORKER_IS_IDLE = '|EVT|WORKER|IDLE|'
 
@@ -91,12 +94,13 @@ def __return__():
     """ 转发返回消息给父进程。 """
     if session['evt'] != EVT_DRI_SHUTDOWN:
         pending_id = getattr(session, '__pending_id')
-        try:
-            session['bri_worker'].message(EVT_DRI_RETURN, (pending_id, session['returns']))
-        except TypeError:
-            # can't pickle _thread.lock objects
-            # 对于无法pickle序列化处理的对象，就字符串化返回结果。并以列表的形式返回消息。
-            session['bri_worker'].message(EVT_DRI_RETURN, (pending_id, [str(ret) for ret in session['returns']]))
+        return_list = []
+        for d in session['returns']:
+            try:
+                return_list.append(pickle.dumps(d))
+            except TypeError:
+                return_list.append(str(d))
+        session['bri_worker'].message(EVT_DRI_RETURN, (pending_id, return_list))
 
 
 @_process_worker.register(EVT_DRI_SHUTDOWN)
@@ -111,6 +115,12 @@ def __shutdown__():
 def _add_plugin(hdl, args, kwargs):
     """ 子进程控制器通信桥安装插件。 """
     session['bri_worker'].add_plugin(hdl(*args, **kwargs))
+
+
+@_process_bri.register(EVT_INSTANCE_DEL)
+def _instance_del(instance_name):
+    """ 删除实例在全局实例变量的引用。 """
+    del session['instance']
 
 
 @_process_bri.register(EVT_INSTANCE_INIT)
@@ -163,7 +173,7 @@ def subprocess_main_thread(channel_pairs, sync_events, init_hdl, init_kwargs):
         for cli in workers:
             cli.__static__.update(static)
         # 为了在队列的推入和取出中获得队伍的长度，重写工作线程的任务队列以嵌入进程同步事件。
-        workers.event_queue = QueueWithEvent(empty_event=workers_empty_queue)
+        workers.event_queue = QueueWithEvent(empty_event=workers_queue_empty_event)
         # 更新工作线程的内部任务事件。
         workers.mapping.update_from(_process_worker)
 
@@ -185,7 +195,7 @@ def subprocess_main_thread(channel_pairs, sync_events, init_hdl, init_kwargs):
     static = {'workers': workers, 'bri_worker': bri_worker, 'instances': instances_box}
 
     # 同步父子进程的状态事件。
-    idle_event, workers_empty_queue = sync_events
+    idle_event, workers_queue_empty_event = sync_events
     setattr(bri_worker, '_Controller__idle', idle_event)
 
     workers_init()
