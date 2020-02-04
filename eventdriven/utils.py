@@ -36,26 +36,21 @@ ForwardingPacket = namedtuple('ForwardingPacket', 'value context')
 
 
 class Listener(object):
-    __slots__ = '_channel', '_allow', '_name'
+    __slots__ = 'channel', 'allow', 'name'
 
     def __init__(self, queue, allow, name=None):
-        self._channel = queue
-        self._allow = allow
-        self._name = name
-
-    @property
-    def allow(self):
-        return self._allow
-
-    @property
-    def name(self):
-        return self._name
+        self.channel = queue
+        self.allow = allow
+        self.name = name
 
     def check(self, t):
-        return t in self._allow
+        return t in self.allow
 
     def push(self, eid, value, context):
         """ 推送监听信息"""
-        self._channel.put((eid, ForwardingPacket(value, context), {
-            'lname': self._name
+        self.channel.put((eid, ForwardingPacket(value, context), {
+            'lname': self.name
         }, (), {}))
+
+    def __eq__(self, other):
+        return type(other) is Listener and other._channel == self.channel

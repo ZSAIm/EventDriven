@@ -39,6 +39,7 @@ from .signal import (EVT_DRI_SHUTDOWN, EVT_DRI_AFTER, EVT_DRI_SUBMIT,
 from .utils import Listener
 from .plugins.base import PluginManager
 from .mapping import MappingManager
+from .error import ListenerAlreadyExisted
 
 
 class Controller:
@@ -171,10 +172,14 @@ class Controller:
 
     def listen(self, target, allow, name=None):
         """ 监听指定控制器的事件。 """
+        if self.event_channel in target.listeners:
+            raise ListenerAlreadyExisted()
         target.listeners.append(Listener(self.event_channel, allow, name))
 
     def listened_by(self, queue, allow, name=None):
         """ 允许被队列Queue监听。"""
+        if queue in self.listeners:
+            raise ListenerAlreadyExisted()
         self.listeners.append(Listener(queue, allow, name))
 
     def shutdown(self):
