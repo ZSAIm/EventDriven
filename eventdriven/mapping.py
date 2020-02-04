@@ -20,10 +20,10 @@ class MappingBlueprint:
     def register(self, evt):
         """ 注册函数处理映射。 """
         def wrapper(func):
-            self.__registers[evt].append(func)
             @wraps(func)
             def wrapped(*args, **kwargs):
                 return func(*args, **kwargs)
+            self.__registers[evt].append(wrapped)
             return wrapped
         return wrapper
 
