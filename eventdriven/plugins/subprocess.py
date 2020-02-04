@@ -237,7 +237,8 @@ class Subprocess(BasePlugin):
         # 事件ID计数
         self._event_count = 0
         # 预实例对象，允许直接把子进程的工作线程当成虚拟实例来使用。
-        self.__instances = {'workers': VirtualInstance(self, 'workers')}
+        self.__instances = {'workers': VirtualInstance(self, 'workers'),
+                            'bri_worker': VirtualInstance(self, 'bri_worker')}
 
         self._lock = ThreadLock()
 

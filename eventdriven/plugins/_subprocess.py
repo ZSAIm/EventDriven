@@ -190,7 +190,7 @@ def subprocess_main_thread(channel_pairs, sync_events, init_hdl, init_kwargs):
     bri_worker = Controller(mapping=_process_bri)
 
     # 子进程全局实例容器。
-    instances_box = {'workers': workers}
+    instances_box = {'workers': workers, 'bri_worker': bri_worker}
     # 为了使得在工作函数中方便引用一些必要的内部对象，更新所有工作线程控制器和通信桥控制器的静态上下文。
     static = {'workers': workers, 'bri_worker': bri_worker, 'instances': instances_box}
 
