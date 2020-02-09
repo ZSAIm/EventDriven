@@ -1,10 +1,10 @@
 # -*- coding: UTF-8 -*-
-""" 定时信号发生器插件 Timer
+""" 定时信号发生器适配器 Timer
 
 工作原理
 
 +------------------------------------+
-|           PluginManager            |
+|           AdapterManager           |
 |                      +---------+   |
 |                      |  Timer  |   |
 |                      |  x sec  |   |
@@ -33,7 +33,7 @@ class Timer:
 
 """
 
-from .base import BasePlugin
+from .base import BaseAdapater
 from threading import Thread, Event
 
 __all__ = ['Timer', 'EVT_DRI_TIMING']
@@ -41,7 +41,7 @@ __all__ = ['Timer', 'EVT_DRI_TIMING']
 EVT_DRI_TIMING = '|EVT|TIMING|'
 
 
-class Timer(BasePlugin):
+class Timer(BaseAdapater):
     """ 定时产生信号。 """
     def __init__(self, interval=None, toggle=EVT_DRI_TIMING):
         """
@@ -97,7 +97,7 @@ class Timer(BasePlugin):
     def __resume__(self):
         self._no_suspend.set()
 
-    def __close__(self):
+    def __closing__(self):
         self._no_suspend.set()
         self._close_evt.set()
 

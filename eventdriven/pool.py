@@ -45,10 +45,11 @@ import time
 class ControllerPool:
     """ 控制器池， 也可以当成是线程池来使用。
     对于每一个线程客户端都有全局上下文：
-        session['cid']  : 线程客户端ID号/索引号。
-        session['pool']
+        session['_cid']      : 线程客户端ID号/索引号。
+        session['pool_mgr'] : 控制器池管理器
     """
-    def __init__(self, maxsize, mapping=None, context=None, static=None, name=None, daemon=True):
+    def __init__(self, maxsize, mapping=None, context=None,
+                 static=None, name=None, daemon=True, *, static_self='pool_mgr'):
         """
         :param
             maxsize     : 最大线程数。
@@ -67,16 +68,16 @@ class ControllerPool:
         # 初始化线程池
         static = dict(static or {})
         self._cli_pool = []
-        static['pool'] = self
+        static[static_self] = self
         for index in range(maxsize):
             # 为线程客户端添加静态的上下文cid用于标识客户端的索引号。
-            static['cid'] = index
+            static['_cid'] = index
             cli_worker = Controller(name=str(name or id(self)) + str(index), mapping=self.mapping,
                                     context=context, static=static, daemon=daemon)
             self._cli_pool.append(cli_worker)
             # 客户端共用一个事件映射，以解决客户端事件处理映射的同步更新。
             # 要注意的是，当线程客户端共用同一个处理处理映射这就意味着
-            # 线程客户端不能安装插件（当插件会添加事件映射的时候造成重复安装，因为所有的客户端都会各自进行安装。）
+            # 线程客户端不能安装适配器（当适配器会添加事件映射的时候造成重复安装，因为所有的客户端都会各自进行安装。）
             cli_worker.mapping = self.mapping
 
         # 处理返回消息队列。
@@ -208,6 +209,8 @@ class ControllerPool:
                     if timeout <= 0:
                         break
             cli.wait(timeout)
+
+    join = wait
 
     def shutdown(self, blocking=False):
         """ 关闭线程池。"""

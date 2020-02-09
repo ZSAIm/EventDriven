@@ -4,7 +4,7 @@
 工作原理:
 
 +------------------------------------+   instance
-|           PluginManager            |<------------ add_plugin
+|           AdapterManager           |<------------ Adapter
 +------------------------------------+
 |   |                     |          |
 |   |                     v          |
@@ -37,7 +37,7 @@ from .session import session
 from .signal import (EVT_DRI_SHUTDOWN, EVT_DRI_AFTER, EVT_DRI_SUBMIT,
                      EVT_DRI_BEFORE, EVT_DRI_OTHER)
 from .utils import Listener
-from .plugins.base import PluginManager
+from .adapter.base import AdapterManager
 from .mapping import MappingManager
 from .error import ListenerAlreadyExisted
 
@@ -45,14 +45,14 @@ from .error import ListenerAlreadyExisted
 class Controller:
     """ 事件控制器。 """
 
-    def __init__(self, mapping=None, context=None, channel_pairs=None, plugins=(),
+    def __init__(self, mapping=None, context=None, channel_pairs=None, adapters=(),
                  static=None, name=None, daemon=True):
         # event_channel 是待处理事件队列。
         # return_channel 是处理返回消息队列。
         self.event_channel, self.return_channel = channel_pairs or (Queue(), Queue())
 
-        # 插件管理器，允许为控制器安装所需插件以增强其功能。
-        self.plugins = PluginManager(self, *plugins)
+        # 适配器管理器，允许为控制器安装所需适配器以增强其功能。
+        self.adapters = AdapterManager(self, *adapters)
 
         # 为了更好的在各个控制器之间的友好通信，listeners 存放着当前控制器所被监听的事件。
         # 当控制器发生被监听的事件的时候，控制器会将事件（值和上下文会以ForwardingPacket对象）转发给监听者。
@@ -106,6 +106,18 @@ class Controller:
         """ 返回静态上下文环境。"""
         return self._static
 
+    def Adapter(self, *adapters):
+        """ 添加适配器。 """
+        p_names = []
+        for adapter in adapters:
+            # 实例化适配器并安装适配器
+            p_names.append(self.adapters.install(adapter))
+
+        if len(adapters) == 1:
+            return p_names[0]
+
+        return p_names
+
     def is_idle(self):
         """ 返回控制器是否处于空闲状态。
         注意：当控制器处于取出事件过程中，控制器是处于空闲状态的。
@@ -123,31 +135,17 @@ class Controller:
     def suspend(self):
         """ 挂起控制器，等待新的任务进入。 """
         self.__not_suspended.clear()
-        # 挂起插件。
-        for plugins in self.plugins:
-            for plugin in plugins:
-                plugin.__suspend__()
+        # 挂起适配器。
+        for adapter in self.adapters:
+            adapter.__suspend__()
 
     def resume(self):
         """ 从挂起中恢复。 """
         self.__not_suspended.set()
 
-        # 恢复插件。
-        for plugins in self.plugins:
-            for plugin in plugins:
-                plugin.__resume__()
-
-    def add_plugin(self, *plugins):
-        """ 添加插件。 """
-        p_names = []
-        for plugin in plugins:
-            # 实例化插件并安装插件
-            p_names.append(self.plugins.install(plugin))
-
-        if len(plugins) == 1:
-            return p_names[0]
-
-        return p_names
+        # 恢复适配器。
+        for adapter in self.adapters:
+            adapter.__resume__()
 
     def submit(self, function=None, args=(), kwargs=None, context=None):
         """ 提交处理任务。 """
@@ -187,12 +185,11 @@ class Controller:
         # 恢复被挂起的线程，让其恢复接受任务处理的状态。
         self.__not_suspended.set()
 
-        # 关闭插件。
-        for plugins in self.plugins:
-            for plugin in plugins:
-                plugin.__close__()
-
         self.dispatch(EVT_DRI_SHUTDOWN)
+
+        # 关闭适配器。
+        for adapter in self.adapters:
+            adapter.__closing__()
 
     close = shutdown
 
@@ -217,10 +214,9 @@ class Controller:
         self.__con_thread = thr
         thr.start()
 
-        # 启动插件。
-        for plugins in self.plugins:
-            for plugin in plugins:
-                plugin.__run__()
+        # 启动适配器。
+        for adapter in self.adapters:
+            adapter.__run__()
 
         return thr
 
@@ -232,6 +228,8 @@ class Controller:
         """
         if self.__con_thread and self.__con_thread.is_alive():
             self.__con_thread.join(timeout)
+
+    join = wait
 
     def wait_for_idle(self, timeout=None):
         """ 等待控制器进入空闲状态。
@@ -260,16 +258,18 @@ class Controller:
         """
         assert not self.__con_thread or not self.__con_thread.is_alive()
         # 清空完毕标志位。
-        clean_finished_flag = object()
-        self.return_channel.put(clean_finished_flag)
-        self.event_channel.put(clean_finished_flag)
+        CLEANFLAG = object()
+        self.return_channel.put(CLEANFLAG)
+        self.event_channel.put(CLEANFLAG)
         while True:
             ret = self.return_channel.get()
-            if ret is clean_finished_flag:
+            self.return_channel.task_done()
+            if ret is CLEANFLAG:
                 break
         while True:
             ret = self.event_channel.get()
-            if ret is clean_finished_flag:
+            self.event_channel.task_done()
+            if ret is CLEANFLAG:
                 break
 
     def __eventloop_thread(self, runtime_ctx):
@@ -277,111 +277,121 @@ class Controller:
         session.__static__ = self._static
         session['self'] = self
         session.__context__(self._global)
-        while True:
-            # 进入空闲状态，即没有任务处理的状态。
-            self.__idle.set()
-            # 如果线程被挂起，那么进入等待。
-            self.__not_suspended.wait()
-            evt, val, event_ctx, hdl_args, hdl_kwargs = self.event_channel.get()
-            self.event_channel.task_done()
-            # print('%s, %s, %s, %s, %s, %s, %s' % (current_process().pid, current_thread().ident, evt, val, event_ctx, hdl_args, hdl_kwargs))
-            # 当取到任务后清除空闲标志位。
-            self.__idle.clear()
-            # 准备处理函数。
-            hdl_list = self.mapping.get(evt, [])
+        try:
+            while True:
+                # 进入空闲状态，即没有任务处理的状态。
+                self.__idle.set()
+                # 如果线程被挂起，那么进入等待。
+                self.__not_suspended.wait()
+                evt, val, event_ctx, hdl_args, hdl_kwargs = self.event_channel.get()
+                self.event_channel.task_done()
+                # print('%s, %s, %s, %s, %s, %s, %s' % (current_process().pid, current_thread().ident, evt, val, event_ctx, hdl_args, hdl_kwargs))
+                # 当取到任务后清除空闲标志位。
+                self.__idle.clear()
+                # 准备处理函数。
+                hdl_list = self.mapping.get(evt, [])
 
-            if evt == EVT_DRI_SUBMIT:
-                if hdl_list:
-                    event_ctx['function'] = val
-                    event_ctx['args'] = hdl_args
-                    event_ctx['kwargs'] = hdl_kwargs
-                    hdl_args = ()
-                    hdl_kwargs = {}
-                else:
-                    hdl_list = [val]
-
-            # 以监听事件响应来通知所有监听该事件的监听者。
-            s_push = (i for i in self.listeners if i.check(evt))
-            for i in s_push:
-                # 抄送事件响应信息。
-                i.push(evt, val, event_ctx)
-
-            # 如果没有定义该事件处理，那么尝试使用默认处理方式。
-            if not hdl_list and evt != EVT_DRI_SHUTDOWN:
-                hdl_list = self.mapping.get(EVT_DRI_OTHER, [])
-                # 默认处理的情况下，强制为事件响应添加属性指向源触发事件ID。
-                session['orig_evt'] = evt
-
-                evt = EVT_DRI_OTHER
-
-            befores = self.mapping.get(EVT_DRI_BEFORE, [])
-            afters = self.mapping.get(EVT_DRI_AFTER, [])
-
-            if hdl_list or befores or afters:
-                session['evt'] = evt
-                session['val'] = val
-                # 创建响应事件，context是dispatch的上下文。
-                # 优先级：self._global < runtime_ctx < event_ctx
-                d = dict(self._global)
-                d.update(runtime_ctx)
-                d.update(event_ctx)
-                # 设置上下文环境。
-                session.__context__(d)
-
-                # 恢复跳过事件标志。
-                self.__skip = False
-
-                # 事件处理函数之前。
-                for before in befores:
-                    if evt == EVT_DRI_BEFORE:
-                        break
-                    if callable(before):
-                        session['hdl_list'] = hdl_list
-                        session['hdl_args'] = hdl_args
-                        session['hdl_kwargs'] = hdl_kwargs
-                        session['event_ctx'] = event_ctx
-                        before()
-                        del session['hdl_list']
-                        del session['hdl_args']
-                        del session['hdl_kwargs']
-                        del session['event_ctx']
-
-                # 若事件处理被跳过了，那么afters也会被跳过
-                if not self.__skip:
-                    returns = []
-                    for hdl in hdl_list:
-                        if callable(hdl):
-                            # 事件处理函数
-                            returns.append(hdl(*hdl_args, **hdl_kwargs))
-
-                if not self.__skip:
-                    # 事件处理函数之后。
-                    # 如果没有定义事件处理，那么也不会执行事件处理之后。
+                if evt == EVT_DRI_SUBMIT:
                     if hdl_list:
-                        for after in afters:
-                            if evt == EVT_DRI_AFTER:
-                                break
-                            if callable(after):
-                                session['returns'] = returns
-                                after()
-                                del session['returns']
+                        event_ctx['function'] = val
+                        event_ctx['args'] = hdl_args
+                        event_ctx['kwargs'] = hdl_kwargs
+                        hdl_args = ()
+                        hdl_kwargs = {}
+                    else:
+                        hdl_list = [val]
 
-                del session['evt']
-                del session['val']
+                # 以监听事件响应来通知所有监听该事件的监听者。
+                s_push = (i for i in self.listeners if i.check(evt))
+                for i in s_push:
+                    # 抄送事件响应信息。
+                    i.push(evt, val, event_ctx)
 
-            if evt == EVT_DRI_OTHER:
-                del session['orig_evt']
+                # 如果没有定义该事件处理，那么尝试使用默认处理方式。
+                if not hdl_list and evt != EVT_DRI_SHUTDOWN:
+                    hdl_list = self.mapping.get(EVT_DRI_OTHER, [])
+                    # 默认处理的情况下，强制为事件响应添加属性指向源触发事件ID。
+                    session['orig_evt'] = evt
 
-            # 跳过标志也会跳过控制器的关闭事件。
-            if not self.__skip:
-                if evt == EVT_DRI_SHUTDOWN:
-                    self.__idle.set()
-                    break
+                    evt = EVT_DRI_OTHER
 
-        # 清除静态环境。
-        session.__static__.clear()
-        # 清除上下文环境
-        session.__context__({})
+                befores = self.mapping.get(EVT_DRI_BEFORE, [])
+                afters = self.mapping.get(EVT_DRI_AFTER, [])
+
+                if hdl_list or befores or afters:
+                    session['evt'] = evt
+                    session['val'] = val
+                    # 创建响应事件，context是dispatch的上下文。
+                    # 优先级：self._global < runtime_ctx < event_ctx
+                    d = dict(self._global)
+                    d.update(runtime_ctx)
+                    d.update(event_ctx)
+                    # 设置上下文环境。
+                    session.__context__(d)
+
+                    # 恢复跳过事件标志。
+                    self.__skip = False
+
+                    # 事件处理函数之前。
+                    for before in befores:
+                        if evt == EVT_DRI_BEFORE:
+                            break
+                        if callable(before):
+                            session['hdl_list'] = hdl_list
+                            session['hdl_args'] = hdl_args
+                            session['hdl_kwargs'] = hdl_kwargs
+                            session['event_ctx'] = event_ctx
+                            before()
+                            del session['hdl_list']
+                            del session['hdl_args']
+                            del session['hdl_kwargs']
+                            del session['event_ctx']
+
+                    # 若事件处理被跳过了，那么afters也会被跳过
+                    if not self.__skip:
+                        returns = []
+                        for hdl in hdl_list:
+                            if callable(hdl):
+                                # 事件处理函数
+                                returns.append(hdl(*hdl_args, **hdl_kwargs))
+
+                    if not self.__skip:
+                        # 事件处理函数之后。
+                        # 如果没有定义事件处理，那么也不会执行事件处理之后。
+                        if hdl_list:
+                            for after in afters:
+                                if evt == EVT_DRI_AFTER:
+                                    break
+                                if callable(after):
+                                    session['returns'] = returns
+                                    after()
+                                    del session['returns']
+
+                    del session['evt']
+                    del session['val']
+
+                if evt == EVT_DRI_OTHER:
+                    del session['orig_evt']
+
+                # 跳过标志也会跳过控制器的关闭事件。
+                if not self.__skip:
+                    if evt == EVT_DRI_SHUTDOWN:
+                        self.__idle.set()
+                        break
+        except Exception:
+            # 发生异常的下的适配器处理。
+            for adapter in self.adapters:
+                adapter.__exception__()
+            raise
+        finally:
+            # 控制器已关闭处理事件。
+            for adapter in self.adapters:
+                adapter.__closed__()
+
+            # 清除静态环境。
+            session.__static__.clear()
+            # 清除上下文环境
+            session.__context__({})
 
     def __repr__(self):
         status = 'stopped'

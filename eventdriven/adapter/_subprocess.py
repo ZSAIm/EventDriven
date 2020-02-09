@@ -1,5 +1,5 @@
 # -*- coding: UTF-8 -*-
-""" 子进程插件 Subprocess （父进程控制器部分）。"""
+""" 子进程适配器 Subprocess （父进程控制器部分）。"""
 
 from ..mapping import MappingBlueprint
 from ..controller import Controller
@@ -37,7 +37,7 @@ class QueueWithEvent(Queue):
 
 def _subprocess_worker_initializer(*args, **kwargs):
     """ 子进程工作线程控制器初始化。
-    若有其他如添加插件需求可以重写该方法。
+    若有其他如添加适配器需求可以重写该方法。
     需要返回控制器实例。
     :param
         maxsize : 工作线程池的最大数量
@@ -58,12 +58,13 @@ _process_worker = MappingBlueprint()
 # 通信桥控制器事件：
 EVT_INSTANCE_INIT = '|EVT|INS|INIT|'
 EVT_INSTANCE_DEL = '|EVT|INS|DEL|'
-EVT_ADD_PLUGIN = '|EVT|PLUGIN|ADD|'
+EVT_ADD_ADAPTER = '|EVT|ADAPTER|ADD|'
 EVT_WORKER_IS_IDLE = '|EVT|WORKER|IDLE|'
 
 # 工作线程控制器事件：
 EVT_WORKER_INSTANCE_CALL = '|EVT|INS|CALL|'
 EVT_WORKER_PROPERTY_GET = '|EVT|PROPERTY|GET|'
+EVT_WORKER_GET_ITEM = '|EVT|ITEM|GET|'
 
 
 def _parse_instance_chain(chain_str):
@@ -88,19 +89,27 @@ def _property_get(chain):
     return _parse_instance_chain(chain)
 
 
+@_process_worker.register(EVT_WORKER_GET_ITEM)
+def _get_item(chain, item):
+    """ 返回__getitem__值。"""
+    return _parse_instance_chain(chain)[item]
+
+
 @_process_worker.register(EVT_DRI_AFTER)
 @_process_bri.register(EVT_DRI_AFTER)
 def __return__():
     """ 转发返回消息给父进程。 """
     if session['evt'] != EVT_DRI_SHUTDOWN:
-        pending_id = getattr(session, '__pending_id')
-        return_list = []
-        for d in session['returns']:
-            try:
-                return_list.append(pickle.dumps(d))
-            except TypeError:
-                return_list.append(str(d))
-        session['bri_worker'].message(EVT_DRI_RETURN, (pending_id, return_list))
+        # FIX: 若没有__pending_id项说明是由工作控制池自己派遣的任务，不做返回处理。
+        pending_id = getattr(session, '__pending_id', None)
+        if pending_id is not None:
+            return_list = []
+            for d in session['returns']:
+                try:
+                    return_list.append(pickle.dumps(d))
+                except TypeError:
+                    return_list.append(str(d))
+            session['bri_worker'].message(EVT_DRI_RETURN, (pending_id, return_list))
 
 
 @_process_worker.register(EVT_DRI_SHUTDOWN)
@@ -111,14 +120,14 @@ def __shutdown__():
     session['workers'].shutdown()
 
 
-@_process_bri.register(EVT_ADD_PLUGIN)
-def _add_plugin(hdl, args, kwargs):
-    """ 子进程控制器通信桥安装插件。 """
-    session['bri_worker'].add_plugin(hdl(*args, **kwargs))
+@_process_bri.register(EVT_ADD_ADAPTER)
+def _add_adapter(hdl, args, kwargs):
+    """ 子进程控制器通信桥安装适配器。 """
+    session['bri_worker'].Adapter(hdl(*args, **kwargs))
 
 
 @_process_bri.register(EVT_INSTANCE_DEL)
-def _instance_del(instance_name):
+def _instance_del():
     """ 删除实例在全局实例变量的引用。 """
     del session['instance']
 

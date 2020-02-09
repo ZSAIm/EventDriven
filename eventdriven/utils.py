@@ -10,7 +10,7 @@ class Pending(object):
 
     def __init__(self):
         self._event = Event()
-        self._returns = None
+        self._returns = [None]
 
     def pend(self, timeout=None):
         """ 等待事件完成，并返回事件的执行返回。"""
@@ -53,4 +53,4 @@ class Listener(object):
         }, (), {}))
 
     def __eq__(self, other):
-        return type(other) is Listener and other._channel == self.channel
+        return type(other) is Listener and other.channel == self.channel

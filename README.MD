@@ -21,7 +21,7 @@ EventDriven 是一个事件驱动控制器。它维持一个事件循环线程�
 
 ```
 +------------------------------------+   instance
-|           PluginManager            |<------------ add_plugin
+|          AdapterManager            |<------------ Adapter
 +------------------------------------+
 |   |                     |          |
 |   |                     v          |
@@ -53,7 +53,7 @@ EventDriven 是一个事件驱动控制器。它维持一个事件循环线程�
 
 - ``事件处理循环线程``收到``处理函数(func)``后，生成``执行会话(Session)``，并调用函数func。
 
-通过方法``add_plugin``可以为控制器``添加插件``。
+通过方法``Adapter``可以为控制器``添加适配器``。
 
 ### ControllerPool
 
@@ -96,7 +96,7 @@ EventDriven 是一个事件驱动控制器。它维持一个事件循环线程�
 - ``控制器池客户端线程``从``待处理事件队列``中取``待处理事件``，并交给空闲的``客户端控制器``处理，同时返回``待决事件对象(Pending)``。
 
 
-### 内置插件 
+### 内置适配器 
 
 #### Subprocess(实现控制器支持在子进程操作)
 
@@ -114,7 +114,7 @@ EventDriven 是一个事件驱动控制器。它维持一个事件循环线程�
    Pending  |               |                                                      |         |     |
 <---------------------------<----------------<<<<<<<<<<<<<<<<<<<<<<---------<------+         |     |
             |               |   Subprocess   |   parent_channel   |         ^                |     |
-            |               |   PluginManager|                    |         |                v     |
+            |               |  AdapterManager|                    |         |                v     |
             |               +----------------+                    +--------------------------------+
             |                                |                    |         ControllerPool         |
             |                                |                    |           <workers>            |
@@ -149,7 +149,7 @@ EventDriven 是一个事件驱动控制器。它维持一个事件循环线程�
 
 ``` 
 +------------------------------------+
-|           PluginManager            |
+|          AdapterManager            |
 |                      +---------+   |
 |                      |  Timer  |   |     x  
 |                      |  x sec  |<--------------- set_timing
@@ -181,7 +181,7 @@ EventDriven 是一个事件驱动控制器。它维持一个事件循环线程�
 
 ``` 
 +------------------------------------+
-|           PluginManager            |
+|          AdapterManager            |
 |                     +---------+    |
 |                     | Pending |    |
 |                     +---------+    |
@@ -274,15 +274,15 @@ con.wait()
 ```
 
 
-### 使用控制器插件
+### 使用适配器(Adapter)
 ```python
 from eventdriven import Controller, session
-from eventdriven.plugins.subprocess import Subprocess
+from eventdriven.adapter.subprocess import Subprocess
 
 from multiprocessing import current_process
 
 from eventdriven import Controller, session
-from eventdriven.plugins.subprocess import Subprocess
+from eventdriven.adapter.subprocess import Subprocess
 from multiprocessing import current_process
 
 
@@ -297,7 +297,7 @@ def subprocess_print_submit(*args):
 if __name__ == '__main__':
     print('main pid: %s' % current_process().pid)
     con = Controller()
-    con.add_plugin(Subprocess(mapping={'1': subprocess_print_dispatch}, maxsize=10))
+    con.Adapter(Subprocess(mapping={'1': subprocess_print_dispatch}, maxsize=10))
 
     con.run()
     con.dispatch('1', args=(1, 2, 3, 4, 5))

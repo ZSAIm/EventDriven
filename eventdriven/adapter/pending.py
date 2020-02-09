@@ -36,31 +36,47 @@ class Controller:
 """
 
 
-from .base import BasePlugin
+from .base import BaseAdapater
 from ..signal import EVT_DRI_AFTER, EVT_DRI_SUBMIT
 from ..session import session
-from threading import Lock
 from ..utils import Pending
+from ..error import DisabledDispatch
+from threading import RLock
 
-__all__ = ['EventPending',]
+
+__all__ = ['EventPending', ]
 
 
-class EventPending(BasePlugin):
-    """ 事件等待返回插件。 """
+class EventPending(BaseAdapater):
+    """ 事件等待返回适配器。 """
     def __init__(self):
         # 由于一个控制器的线性执行，所以只需要一个列表来存储pending对象就行了，
         # 当执行完一个事件后，列表的第一个元素就是当前执行的任务。
-        self._unfinished_events = []
+        self._unfinished_events = {}
         # 加锁是为了保证pending返回事件的正确顺序
-        self._lock = Lock()
+        self._lock = RLock()
+        self._event_count = 0
+
+    def __closed__(self):
+        # 清除未决事件。
+        while True:
+            try:
+                self._unfinished_events.popitem()[1].set([None])
+            except KeyError:
+                break
 
     def __patch__(self):
-        def dispatch(*args, **kwargs):
+        def dispatch(evt, value=None, context=None, args=(), kwargs=None):
             with self._lock:
+                pending_id = self._event_count
+                self._event_count += 1
+                context = dict(context or {})
+                context['__pending_id'] = pending_id
+                # 准备pending事件等待返回对象。
                 pending = Pending()
-                self._unfinished_events.append(pending)
-
-                dispatch_super(*args, **kwargs)
+                self._unfinished_events[pending_id] = pending
+                # 控制器提交任务。
+                dispatch_super(evt, value, context, args, kwargs)
                 return pending
 
         def submit(function=None, args=(), kwargs=None, context=None):
@@ -73,8 +89,11 @@ class EventPending(BasePlugin):
 
     def __return__(self):
         """ 返回操作。"""
-        pending = self._unfinished_events.pop(0)
-        pending.set(session['returns'])
+        pending_id = getattr(session, '__pending_id', None)
+        if pending_id is not None:
+            with self._lock:
+                pend = self._unfinished_events.pop(pending_id)
+                pend.set(session['returns'])
 
     def __mapping__(self):
         return {
