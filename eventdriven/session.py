@@ -13,7 +13,7 @@ class Session(local):
 
     @__static__.setter
     def __static__(self, value):
-        self.__static = value
+        self.__static = dict(value)
 
     @property
     def __vars__(self):

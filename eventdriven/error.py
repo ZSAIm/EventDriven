@@ -13,6 +13,3 @@ class UniqueAdapterInstance(Error):
     pass
 
 
-class DisabledDispatch(Error):
-    """ 派遣事件被禁用。"""
-

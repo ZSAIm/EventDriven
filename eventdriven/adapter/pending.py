@@ -4,7 +4,7 @@
 工作原理
 
 +------------------------------------+
-|           PluginManager            |
+|          AdapterManager            |
 |                     +---------+    |
 |                     | Pending |    |
 |                     +---------+    |
@@ -36,18 +36,17 @@ class Controller:
 """
 
 
-from .base import BaseAdapater
+from .base import AbstractAdapter
 from ..signal import EVT_DRI_AFTER, EVT_DRI_SUBMIT
 from ..session import session
 from ..utils import Pending
-from ..error import DisabledDispatch
 from threading import RLock
 
 
-__all__ = ['EventPending', ]
+__all__ = ['EventPending']
 
 
-class EventPending(BaseAdapater):
+class EventPending(AbstractAdapter):
     """ 事件等待返回适配器。 """
     def __init__(self):
         # 由于一个控制器的线性执行，所以只需要一个列表来存储pending对象就行了，
@@ -59,11 +58,12 @@ class EventPending(BaseAdapater):
 
     def __closed__(self):
         # 清除未决事件。
-        while True:
-            try:
-                self._unfinished_events.popitem()[1].set([None])
-            except KeyError:
-                break
+        with self._lock:
+            while True:
+                try:
+                    self._unfinished_events.popitem()[1].set([None])
+                except KeyError:
+                    break
 
     def __patch__(self):
         def dispatch(evt, value=None, context=None, args=(), kwargs=None):

@@ -61,6 +61,7 @@ class ControllerPool:
         assert maxsize > 0
 
         self._maxsize = maxsize
+        self._name = name
         # 共用事件处理映射管理器。
         self.mapping = MappingManager(mapping)
         self.mapping.add(EVT_DRI_AFTER, self.__fetch__)
@@ -85,25 +86,12 @@ class ControllerPool:
         self.__lock = Lock()
         self.__not_suspended = Event()
         self.__not_suspended.set()
+        self.__idle = Event()
+        self.__idle.set()
+        self.__pending = Event()
+        self.__pending.set()
         # 待处理任务队列。
         self.event_queue = Queue()
-
-    def pend(self):
-        """ 等待控制器池空闲，也就是等待处理队列完成。"""
-        self.event_queue.join()
-
-    def wait_for_idle(self, timeout=None):
-        """ 等待所有的线程客户端都处于空闲状态。 """
-        endtime = None
-        for cli in self._cli_pool:
-            if timeout is not None:
-                if endtime is None:
-                    endtime = time.time() + timeout
-                else:
-                    timeout = endtime - time.time()
-                    if timeout <= 0:
-                        raise TimeoutError()
-            cli.wait_for_idle(timeout)
 
     def is_idle(self):
         """ 返回控制器池是否处于空闲状态（没有任务在执行）。"""
@@ -121,6 +109,10 @@ class ControllerPool:
                 return True
         return False
 
+    def is_suspended(self):
+        """ 返回是否处于挂起状态。"""
+        return self.__not_suspended.is_set()
+
     def suspend(self):
         """ 挂起控制器池，这里所谓的挂起就是阻塞工作线程从任务队列取任务。"""
         self.__not_suspended.clear()
@@ -132,9 +124,9 @@ class ControllerPool:
     def run(self, context=None):
         """ 启动池里面所有的控制器。 """
         if self.is_alive():
-            raise AssertionError('ControllerPool has already been running.')
+            raise AssertionError('控制器池已处于运行状态。')
         self.__closed.clear()
-
+        self.__idle.set()
         with self.__lock:
             # 挂起所有的控制器，以准备就绪状态。
             for cli in self._cli_pool:
@@ -147,6 +139,9 @@ class ControllerPool:
                     try:
                         data = self.event_queue.get_nowait()
                         self.event_queue.task_done()
+                        # 清除工作线程空闲标志。
+                        self.__idle.clear()
+                        cli.resume()
                         cli.dispatch(*data)
                     except Empty:
                         break
@@ -173,6 +168,10 @@ class ControllerPool:
         pending = Pending()
         context['__pending'] = pending
         with self.__lock:
+            # 等待pending结束。
+            self.__pending.wait()
+            # 清除工作线程空闲标志。
+            self.__idle.clear()
             cli = self.find_suspended_client()
             if cli:
                 # 先恢复线程继续运行。
@@ -196,6 +195,16 @@ class ControllerPool:
                 except Empty:
                     break
         return clean_list
+
+    def pending(self):
+        """ 等待任务队列被取空，在pending过程中就阻塞任务派遣方法dispatch/submit."""
+        self.__pending.clear()
+        self.event_queue.join()
+        self.__pending.set()
+
+    def wait_for_idle(self, timeout=None):
+        """ 等待所有的线程客户端都处于空闲状态。 """
+        self.__idle.wait(timeout)
 
     def wait(self, timeout=None):
         """ 等待控制器。 """
@@ -256,8 +265,19 @@ class ControllerPool:
                 except Empty:
                     # 挂起线程客户端，处于空闲状态，等待分派新的任务。
                     session['self'].suspend()
+                    # 判断设置控制器池空闲标志。
+                    if all([cli.is_suspended() for cli in self._cli_pool]):
+                        self.__idle.set()
 
     def __iter__(self):
         """ 迭代客户端控制器。 """
         return iter(self._cli_pool)
 
+    def __repr__(self):
+        status = 'stopped'
+        if self.is_alive():
+            status = 'running'
+        if self.is_suspended():
+            status = 'suspended'
+
+        return '<ControllerPool %s %s %s>' % (self._name, len(self._cli_pool), status)

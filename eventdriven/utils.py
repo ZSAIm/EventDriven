@@ -4,7 +4,7 @@ from collections import namedtuple
 from threading import Event
 
 
-class Pending(object):
+class Pending:
     """ 事件执行的等待事件。 """
     __slots__ = '_event', '_returns'
 
@@ -12,7 +12,7 @@ class Pending(object):
         self._event = Event()
         self._returns = [None]
 
-    def pend(self, timeout=None):
+    def pending(self, timeout=None):
         """ 等待事件完成，并返回事件的执行返回。"""
         if not self._event.wait(timeout):
             raise TimeoutError('事件返回等待超时!')
@@ -35,7 +35,7 @@ class Pending(object):
 ForwardingPacket = namedtuple('ForwardingPacket', 'value context')
 
 
-class Listener(object):
+class Listener:
     __slots__ = 'channel', 'allow', 'name'
 
     def __init__(self, queue, allow, name=None):

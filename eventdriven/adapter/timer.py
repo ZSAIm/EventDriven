@@ -33,7 +33,7 @@ class Timer:
 
 """
 
-from .base import BaseAdapater
+from .base import AbstractAdapter
 from threading import Thread, Event
 
 __all__ = ['Timer', 'EVT_DRI_TIMING']
@@ -41,7 +41,7 @@ __all__ = ['Timer', 'EVT_DRI_TIMING']
 EVT_DRI_TIMING = '|EVT|TIMING|'
 
 
-class Timer(BaseAdapater):
+class Timer(AbstractAdapter):
     """ 定时产生信号。 """
     def __init__(self, interval=None, toggle=EVT_DRI_TIMING):
         """
@@ -66,6 +66,11 @@ class Timer(BaseAdapater):
             self._close_evt.set()
         elif self._parent.is_alive():
             self.__run__()
+
+    def join(self):
+        """ 等待线程结束。"""
+        if self.__timer_thread and self.__timer_thread.is_alive():
+            self.__timer_thread.join()
 
     def __run__(self):
         if self._interval:
