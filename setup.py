@@ -3,7 +3,7 @@
 from setuptools import setup, find_packages
 import io
 
-version = '0.1.1'
+version = '0.1.2'
 author = 'ZSAIm'
 author_email = 'zzsaim@163.com'
 
@@ -25,7 +25,6 @@ setup(
             'License :: OSI Approved :: Apache Software License',
             'Programming Language :: Python',
             'Programming Language :: Python :: 3',
-            'Programming Language :: Python :: 3.7',
         ],
     packages=find_packages(),
 

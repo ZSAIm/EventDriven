@@ -64,7 +64,7 @@ class Timer(AbstractAdapter):
         self._interval = interval
         if not interval:
             self._close_evt.set()
-        elif self._parent.is_alive():
+        elif self._parent.is_alive() and (not self.__timer_thread or not self.__timer_thread.is_alive()):
             self.__run__()
 
     def join(self):
@@ -99,8 +99,12 @@ class Timer(AbstractAdapter):
     def __suspend__(self):
         self._no_suspend.clear()
 
+    suspend = __suspend__
+
     def __resume__(self):
         self._no_suspend.set()
+
+    resume = __resume__
 
     def __closing__(self):
         self._no_suspend.set()
