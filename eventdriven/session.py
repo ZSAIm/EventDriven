@@ -3,6 +3,14 @@ from threading import local
 
 
 class Session(local):
+    """ 会话线程变量。
+    作为事件处理的会话变量，存在两种上下文形式：
+
+    静态上下文：（以会话变量项的形式引用）
+        session['example']
+
+    动态上下文：（以属性形式）
+    """
     def __init__(self):
         super(Session, self).__init__()
         self.__static = {}

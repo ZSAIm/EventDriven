@@ -22,15 +22,6 @@
 |            EventLoop               |
 |                                    |
 +------------------------------------+
-
-
-接口说明：
-
-class Timer:
-    def set_timing(self, interval=None):
-        # 设置定时器的定时间隔
-
-
 """
 
 from .base import AbstractAdapter
@@ -42,12 +33,19 @@ EVT_DRI_TIMING = '|EVT|TIMING|'
 
 
 class Timer(AbstractAdapter):
-    """ 定时产生信号。 """
+    """ 定时产生信号。
+
+    :public method
+        set_timing:     设置定时器的定时间隔。
+        suspend:        挂起定时器的事件产生。
+        resume:         恢复挂起的定时器。
+    """
+
     def __init__(self, interval=None, toggle=EVT_DRI_TIMING):
         """
         :param
-            interval    : 定时信号发生器事件间隔
-            toggle      : 定时发生的事件
+            interval    : 定时信号发生器事件间隔。
+            toggle      : 定时发生的事件，默认EVT_DRI_TIMING
         """
         self.__timer_thread = None
         self._interval = interval

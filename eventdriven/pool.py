@@ -33,7 +33,7 @@
 
 from .controller import Controller
 from .mapping import MappingManager
-from .signal import EVT_DRI_AFTER, EVT_DRI_SUBMIT
+from .event import EVT_DRI_AFTER, EVT_DRI_SUBMIT
 from .session import session
 from .utils import Pending
 from queue import Queue, Empty
@@ -43,8 +43,12 @@ import time
 
 
 class ControllerPool:
-    """ 控制器池， 也可以当成是线程池来使用。
-    对于每一个线程客户端都有全局上下文：
+    """ 控制器池。
+    :public property
+        mapping:        事件处理映射。
+        event_queue:    待处理事件队列.
+
+    :client controller static-context:
         session['_cid']      : 线程客户端ID号/索引号。
         session['pool_mgr'] : 控制器池管理器
     """
@@ -52,11 +56,13 @@ class ControllerPool:
                  static=None, name=None, daemon=True, *, static_self='pool_mgr'):
         """
         :param
-            maxsize     : 最大线程数。
-            mapping     : 事件处理映射。
-            context     : 全局上下文。
-            name        : 控制器池名称。
-            daemon      : 守护线程
+            maxsize:    最大线程数。
+            mapping:    事件处理映射。
+            context:    全局动态上下文。
+            static:     静态上下文。
+            name:       控制器池名称。
+            daemon:     传递给客户端初始化的参数。
+            static_self:客户端控制器引用控制器池对象所使用的静态上下文名称。
         """
         assert maxsize > 0
 
@@ -81,7 +87,7 @@ class ControllerPool:
             # 线程客户端不能安装适配器（当适配器会添加事件映射的时候造成重复安装，因为所有的客户端都会各自进行安装。）
             cli_worker.mapping = self.mapping
 
-        # 处理返回消息队列。
+        # 控制器状态事件
         self.__closed = Event()
         self.__lock = Lock()
         self.__not_suspended = Event()

@@ -51,7 +51,11 @@ class AbstractAdapter(ABC):
         return {}
 
     def __context__(self):
-        """ 返回添加的全局上下文。"""
+        """ 返回需要添加的全局动态上下文。"""
+        return {}
+
+    def __static__(self):
+        """ 返回需要添加的静态上下文。"""
         return {}
 
     @staticmethod

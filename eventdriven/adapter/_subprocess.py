@@ -3,8 +3,7 @@
 from .base import AbstractAdapter
 from ..mapping import MappingBlueprint
 from ..session import session
-from ..signal import (EVT_DRI_SHUTDOWN, EVT_DRI_RETURN,
-                      EVT_DRI_SUSPEND, EVT_DRI_OTHER, EVT_DRI_SUBMIT)
+from ..event import (EVT_DRI_SHUTDOWN, EVT_DRI_OTHER, EVT_DRI_SUBMIT, EVT_DRI_ERROR)
 from multiprocessing import Event
 from threading import Lock as ThreadLock
 from queue import Queue
@@ -22,8 +21,13 @@ class Message(AbstractAdapter):
         self._parent.message = message
         self._parent.return_channel = self._message_channel
 
+    def __exception__(self, error):
+        # 子进程事件处理出现错误后给父进程控制器发送错误处理事件
+        self._parent.message(EVT_DRI_ERROR, error)
+
 
 class QueueWithEvent(Queue):
+    __slots__ = '_empty', '__lock'
     """ 为了实现子进程工作线程的任务队列的状态事件。"""
     def __init__(self, maxsize=0, empty_event=None):
         super(QueueWithEvent, self).__init__(maxsize)
@@ -72,7 +76,7 @@ EVT_INSTANCE_INIT = '|EVT|INS|INIT|'
 EVT_INSTANCE_DEL = '|EVT|INS|DEL|'
 EVT_ADD_ADAPTER = '|EVT|ADAPTER|ADD|'
 EVT_SUBPROCESS_SHUTDOWN = '|EVT|SUBPROCESS|SHUTDOWN|'
-
+EVT_SUBPROCESS_RETURN = '|EVT|RETURN|'
 # 工作线程控制器事件：
 EVT_WORKER_INSTANCE_CALL = '|EVT|INS|CALL|'
 EVT_WORKER_PROPERTY_GET = '|EVT|PROPERTY|GET|'
@@ -121,7 +125,7 @@ def __return__():
                 return_list.append(pickle.dumps(d))
             except TypeError:
                 return_list.append(str(d))
-        session['bri_worker'].message(EVT_DRI_RETURN, (pending_id, return_list))
+        session['bri_worker'].message(EVT_SUBPROCESS_RETURN, (pending_id, return_list))
 
 
 @_process_worker.register(EVT_DRI_SHUTDOWN)
@@ -150,15 +154,6 @@ def _instance_initializer(hdl, args, kwargs, name):
     """ 子进程初始化实例。 """
     ins = hdl(*args, **kwargs)
     session['instances'][name] = ins
-
-
-@_process_bri.register(EVT_DRI_SUSPEND)
-def __suspend__():
-    """ 工作线程挂起/恢复。 True=suspend; False=resume"""
-    if session['val']:
-        session['workers'].suspend()
-    else:
-        session['workers'].resume()
 
 
 @_process_bri.register(EVT_DRI_OTHER)
@@ -234,6 +229,5 @@ def subprocess_main_thread(channel_pairs, sync_events, init_hdl, init_kwargs):
 
     # 通知父进程关闭控制器。
     bri_worker.message(EVT_DRI_SHUTDOWN)
-
 
 

@@ -1,12 +1,14 @@
 # -*- coding: UTF-8 -*-
 
-from .signal import EVT_DRI_AFTER, EVT_DRI_BEFORE
+from .event import EVT_DRI_AFTER, EVT_DRI_BEFORE
 from functools import wraps
 from collections import defaultdict
 
 
 class MappingBlueprint:
     """ 控制器事件处理映射蓝图。 """
+    __slots__ = ('__registers',)
+
     def __init__(self):
         self.__registers = defaultdict(list)
 
@@ -17,15 +19,22 @@ class MappingBlueprint:
         """ 从另一个蓝图继承事件处理映射。 """
         self.__registers.update(dict(blueprint))
 
-    def register(self, evt):
-        """ 注册函数处理映射。 """
-        def wrapper(func):
-            @wraps(func)
-            def wrapped(*args, **kwargs):
-                return func(*args, **kwargs)
-            self.__registers[evt].append(wrapped)
-            return wrapped
-        return wrapper
+    def register(self, evt, *args):
+        """ 注册函数处理映射。
+        使用装饰器的方式或者事件evt后加处理函数的方式进行注册。
+        """
+        if not args:
+            def wrapper(func):
+                @wraps(func)
+                def wrapped(*args, **kwargs):
+                    return func(*args, **kwargs)
+                self.__registers[evt].append(wrapped)
+                return wrapped
+            return wrapper
+        else:
+            for func in args:
+                if func not in self.__registers[evt]:
+                    self.__registers[evt].append(func)
 
     def hook_before(self):
         """ 事件处理函数之间。 """
@@ -37,6 +46,8 @@ class MappingBlueprint:
 
 
 class MappingManager:
+    __slots__ = ('_mapping',)
+
     def __init__(self, mapping=None):
         self._mapping = None
         self.set(mapping or {})
@@ -49,10 +60,11 @@ class MappingManager:
     def update_from(self, d):
         """ 从字典中更新事件处理映射。 """
         for k, v in dict(d).items():
-            if type(v) in (list, tuple):
-                self._mapping[k].extend(list(v))
-            else:
-                self._mapping[k].append(v)
+            if type(v) not in (list, tuple):
+                v = [v]
+            for i in v:
+                if k not in self._mapping[k]:
+                    self._mapping[k].append(i)
 
     def set(self, mapping):
         """ 清空事件映射后更新事件映射。 """

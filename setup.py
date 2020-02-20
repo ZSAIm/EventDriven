@@ -3,7 +3,7 @@
 from setuptools import setup, find_packages
 import io
 
-version = '0.1.2'
+version = '0.1.3'
 author = 'ZSAIm'
 author_email = 'zzsaim@163.com'
 

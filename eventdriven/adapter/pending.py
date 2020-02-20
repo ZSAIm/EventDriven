@@ -37,7 +37,7 @@ class Controller:
 
 
 from .base import AbstractAdapter
-from ..signal import EVT_DRI_AFTER, EVT_DRI_SUBMIT
+from ..event import EVT_DRI_AFTER, EVT_DRI_SUBMIT
 from ..session import session
 from ..utils import Pending
 from threading import RLock

@@ -10,6 +10,6 @@ class ListenerAlreadyExisted(Error):
 
 
 class UniqueAdapterInstance(Error):
-    pass
+    """ 该适配器只能添加一个实例。"""
 
 

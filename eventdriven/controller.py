@@ -33,18 +33,45 @@ from threading import Thread, Event
 from queue import Queue
 from .adapter import AbstractAdapter
 from .session import session
-from .signal import (EVT_DRI_SHUTDOWN, EVT_DRI_AFTER, EVT_DRI_SUBMIT,
-                     EVT_DRI_BEFORE, EVT_DRI_OTHER, EVT_DRI_CLEAN)
+from .event import (EVT_DRI_SHUTDOWN, EVT_DRI_AFTER, EVT_DRI_SUBMIT,
+                    EVT_DRI_BEFORE, EVT_DRI_OTHER, EVT_DRI_CLEAN)
 from .utils import Listener
 from .mapping import MappingManager
 from .error import ListenerAlreadyExisted, UniqueAdapterInstance
 
 
 class Controller:
-    """ 事件控制器。 """
+    """ 事件控制器。
+
+    :public property
+        adapters:       适配器管理器
+        mapping:        事件处理映射管理器
+        event_channel:  事件处理队列通道
+
+    """
 
     def __init__(self, mapping=None, context=None, event_channel=None, adapters=(),
                  static=None, name=None, daemon=True):
+        """
+        :param
+            mapping:        事件处理映射，类型dict/MappingBlueprint。
+            context:        全局动态上下文。类型dict。
+                            - 该字典的键值将以属性的方式添加到会话线程变量session，如session.example
+                            - 除了python内部变量关键字外，还有不允许使用的属性名:
+                            - 若属于监听转发得到的事件
+            event_channel:  可指定事件队列通道。类型Queue。
+            adapters:       初始化添加适配器。类型继承AbstractAdapter类。
+            static:         静态上下文。类型dict
+                            - 该字典的键值将以项的方式添加到会话线程变量session，如session['example']
+                            - 不允许使用的健:
+                                * ALL CASE:         'self', 'evt', 'val'
+                                * EVT_DRI_OTHER:    'origin_evt'
+                                * EVT_DRI_SUBMIT:   'function', 'args', 'kwargs', 'evt_context'
+                                * EVT_DRI_BEFORE:   'hdl_init', 'hdl_args', 'hdl_kwargs'
+                                * EVT_DRI_AFTER:    'returns'
+            name:           该名称将用用于线程名称。
+            daemon:         该daemon将用于线程的创建时传递。
+        """
         # event_channel 是待处理事件队列。
         self.event_channel = event_channel or Queue()
 
@@ -330,7 +357,7 @@ class Controller:
                         session['hdl_list'] = hdl_list
                         session['hdl_args'] = hdl_args
                         session['hdl_kwargs'] = hdl_kwargs
-                        session['event_ctx'] = event_ctx
+                        session['evt_context'] = event_ctx
                         for before in befores:
                             if evt == EVT_DRI_BEFORE:
                                 break
@@ -340,7 +367,7 @@ class Controller:
                         del session['hdl_list']
                         del session['hdl_args']
                         del session['hdl_kwargs']
-                        del session['event_ctx']
+                        del session['evt_context']
 
                     # 若事件处理被跳过了，那么afters也会被跳过
                     if not self.__skip:
@@ -457,9 +484,10 @@ class AdapterManager:
         for evt, hdl in adapter.__mapping__().items():
             self._parent.mapping.add(evt, hdl)
 
-        # 添加全局上下文。
+        # 添加全局动态上下文。
         self._parent.__global__.update(adapter.__context__())
-
+        # 添加静态上下文。
+        self._parent.__static__.update(adapter.__static__())
         self.__name_adapter[name] = adapter
         self._adapters[pt].append(adapter)
 

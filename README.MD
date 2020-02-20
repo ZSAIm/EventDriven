@@ -1,14 +1,14 @@
 EventDriven
 =========================
 
-# 事件驱动控制器
+# 事件驱动实现库
 
 [![Build Status](https://img.shields.io/badge/build-beta-red.svg)](https://github.com/ZSAIm/EventDriven)
-[![Build Status](https://img.shields.io/badge/pypi-v0.1.1-blue.svg)](https://pypi.org/project/EventDriven/)
+[![Build Status](https://img.shields.io/badge/pypi-v0.1.3-blue.svg)](https://pypi.org/project/EventDriven/)
 
-EventDriven 是一个事件驱动实现库。主要是为了实现由复杂多线程控制的程序架构之间的线程数据安全和实现线程的复用问题。
+EventDriven 是一个事件驱动实现库。主要是为了解决复杂的程序架构之间的线程数据安全和线程的复用问题。
 
-实现方式是控制器通过维护一条事件循环线程，通过事件或函数派遣的方式调用，以一种结构化的方式实现多线程之间的控制通信。
+实现方式是控制器通过维护一条事件循环线程，通过事件或函数派遣的方式调用，以一种结构化的方式实现多线程之间的控制通信和处理。
 
 典型的使用情况：
 
@@ -235,20 +235,23 @@ def submit_func(a, b):
     # session['self'] 是当前控制器对象。
     session['self'].shutdown()
 
+# 定义事件1的处理函数是event_func(), 同时传递全局上下文。
 con = Controller(mapping={
     1: event_func
 }, context={'start_time': time()})
+# 启动控制器
 con.run()
 # 事件驱动，事件1
 con.dispatch(1, context={'evt_time': time()})
-# 任务驱动
+# 处理函数驱动
 con.submit(submit_func, args=('a', 'b'))
+# 关闭控制器
+con.shutdown()
 # 控制器阻塞等待
-con.wait()
-
+con.join()
 ```
 
-### 使用事件映射蓝图
+### 使用事件映射蓝图定义事件处理映射
 ```python
 from eventdriven import Controller, MappingBlueprint
 test_model = MappingBlueprint()
@@ -277,7 +280,7 @@ con.dispatch(EVT_THREE)
 con.dispatch(EVT_ONE)
 con.dispatch(EVT_TWO)
 con.shutdown()
-con.wait()
+con.join()
 
 ```
 
@@ -305,16 +308,26 @@ def subprocess_print_submit(*args):
 if __name__ == '__main__':
     print('main pid: %s' % current_process().pid)
     con = Controller()
+    
+    # 控制台安装子进程适配器，这回使得事件的处理将在控制器新创建的子进程下处理。
+    # 子进程的事件处理映射通过Subprocess实例传递。
     con.Adapter(Subprocess(mapping={'1': subprocess_print_dispatch}, maxsize=10))
-
+    
+    # 开启控制器，同时会有适配器启动子进程的初始化工作。
     con.run()
+    
     con.dispatch('1', args=(1, 2, 3, 4, 5))
     con.submit(subprocess_print_submit, args=(1, 2, 3, 4, 5))
     for i in range(100):
         con.submit(subprocess_print_submit, args=(i,))
     
+    # 等待所有任务完全送到子进程，并且子进程下的工作线程取完所有的待处理任务。
     con.pending()
+    # 等待子进程工作线程任务处理完后处于空闲状态。
+    con.wait_for_idle()
+    # 关闭子进程，同时也会关闭当前线程的控制器con。
     con.shutdown()
+    # 等待控制器关闭结束。
     con.wait()
 
 
